@@ -1,0 +1,38 @@
+{
+    "name": "velvet",
+    "private": true,
+    "version": "0.0.0",
+    "description": "Velvet — Women's Custom Clothing E-Commerce monorepo",
+    "license": "UNLICENSED",
+    "scripts": {
+        "dev": "concurrently --kill-others-on-fail \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
+        "build": "pnpm -r run build",
+        "lint": "pnpm -r run lint",
+        "lint:fix": "pnpm -r run lint:fix",
+        "format": "prettier --write \"apps/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "format:check": "prettier --check \"apps/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+        "typecheck": "pnpm -r run typecheck",
+        "test": "pnpm -r run test",
+        "test:e2e": "pnpm --filter web test:e2e",
+        "prepare": "husky"
+    },
+    "devDependencies": {
+        "@commitlint/cli": "^20.4.2",
+        "@commitlint/config-conventional": "^20.4.2",
+        "concurrently": "^9.1.2",
+        "husky": "^9.1.7",
+        "lint-staged": "^16.2.7",
+        "prettier": "^3.5.3",
+        "typescript": "^5.8.3"
+    },
+    "lint-staged": {
+        "apps/**/*.{ts,tsx,js,jsx,json,css,md}": [
+            "prettier --write"
+        ]
+    },
+    "engines": {
+        "node": ">=20",
+        "pnpm": ">=9"
+    },
+    "packageManager": "pnpm@10.6.5"
+}
