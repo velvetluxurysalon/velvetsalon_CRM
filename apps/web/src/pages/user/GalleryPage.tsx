@@ -7,6 +7,10 @@ import {
   X,
   Sparkles,
   Camera,
+  Video,
+  Play,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 // ─── YOUR PHOTOS ────────────────────────────────────────────────────────────
@@ -29,7 +33,13 @@ interface SalonMoment {
   caption: string;
 }
 
-type TabName = "All" | "Before & After" | "Salon Moments";
+interface SalonVideo {
+  id: string;
+  src: string;
+  title: string;
+}
+
+type TabName = "All" | "Before & After" | "Videos" | "Salon Moments";
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
@@ -75,12 +85,76 @@ const salonMoments: SalonMoment[] = [
   },
 ];
 
-const TABS: TabName[] = ["All", "Before & After", "Salon Moments"];
+// Cloudinary video links. Change the titles to whatever you like.
+const salonVideos: SalonVideo[] = [
+  {
+    id: "video-1",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758113/Hair_wash_video.mp4",
+    title: "Hair Wash Experience",
+  },
+  {
+    id: "video-2",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758201/IMG_3051.mov",
+    title: "Salon Video 2",
+  },
+  {
+    id: "video-3",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758269/IMG_3374.mov",
+    title: "Salon Video 3",
+  },
+  {
+    id: "video-4",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758334/IMG_3375.mov",
+    title: "Salon Video 4",
+  },
+  {
+    id: "video-5",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758415/IMG_3738.mov",
+    title: "Salon Video 5",
+  },
+  {
+    id: "video-6",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758570/IMG_3742.mov",
+    title: "Salon Video 6",
+  },
+  {
+    id: "video-7",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758704/video_20260802_154949.mp4",
+    title: "Salon Video 7",
+  },
+  {
+    id: "video-8",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790758788/InShot_20260721_002724055.mp4",
+    title: "Salon Video 8",
+  },
+  {
+    id: "video-9",
+    src: "https://res.cloudinary.com/elzwbzdn/video/upload/v1790759452/InShot_20260721_005754039.mp4",
+    title: "Salon Video 9",
+  },
+];
+
+const TABS: TabName[] = ["All", "Before & After", "Videos", "Salon Moments"];
 
 const fadeUp: Variants = {
   hidden: { opacity: 0, y: 30 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
 };
+
+// ─── CLOUDINARY HELPERS ─────────────────────────────────────────────────────
+// iPhone .mov files (HEVC) don't play in many browsers. Cloudinary can convert
+// on the fly: we ask for H.264 MP4, and also build a thumbnail image.
+
+const toPlayableMp4 = (url: string): string =>
+  url
+    .replace("/upload/", "/upload/f_mp4,vc_h264,q_auto/")
+    .replace(/\.(mov|mp4)$/i, ".mp4");
+
+// Thumbnail frame taken 1 second in (avoids black first frames)
+const toThumb = (url: string): string =>
+  url
+    .replace("/upload/", "/upload/so_1,w_300,q_auto/")
+    .replace(/\.(mov|mp4)$/i, ".jpg");
 
 // ─── BEFORE / AFTER SLIDER ──────────────────────────────────────────────────
 
@@ -126,7 +200,7 @@ function BeforeAfterSlider({ before, after, title }: BeforeAfterSliderProps) {
         onTouchMove={onTouchMove}
       >
         {/* After image (full, base layer) */}
-                <img
+        <img
           src={after}
           alt={`${title} — after result at Velvet Premium Unisex Salon`}
           className="absolute inset-0 w-full h-full object-cover"
@@ -139,7 +213,7 @@ function BeforeAfterSlider({ before, after, title }: BeforeAfterSliderProps) {
           className="absolute inset-0 overflow-hidden"
           style={{ clipPath: `inset(0 ${String(100 - position)}% 0 0)` }}
         >
-                   <img
+          <img
             src={before}
             alt={`${title} — before treatment at Velvet Premium Unisex Salon`}
             className="absolute inset-0 w-full h-full object-cover"
@@ -171,6 +245,114 @@ function BeforeAfterSlider({ before, after, title }: BeforeAfterSliderProps) {
   );
 }
 
+// ─── VIDEO CAROUSEL ─────────────────────────────────────────────────────────
+
+interface VideoGridProps {
+  items: SalonVideo[];
+}
+
+function VideoGrid({ items }: VideoGridProps) {
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollByCard = (dir: 1 | -1) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const firstCard = el.firstElementChild as HTMLElement | null;
+    const step = firstCard ? firstCard.offsetWidth + 16 : 240;
+    el.scrollBy({ left: dir * step, behavior: "smooth" });
+  };
+
+  return (
+    <div>
+      {/* Scrolling row of video cards */}
+      <div
+        ref={scrollRef}
+        className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 -mx-6 px-[15%] sm:px-6 scroll-px-[15%] sm:scroll-px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+      
+        {items.map((item, i) => {
+          const isPlaying = item.id === playingId;
+          return (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: (i % 4) * 0.06 }}
+                          className="snap-center sm:snap-start shrink-0 w-[70%] sm:w-[220px]"
+            >
+              <div className="relative aspect-[9/16] rounded-3xl overflow-hidden bg-black border border-[#E8D9C0] shadow-[0_12px_30px_-12px_rgba(139,90,43,0.4)]">
+                {isPlaying ? (
+                  <video
+                    className="absolute inset-0 w-full h-full object-cover"
+                    controls
+                    autoPlay
+                    playsInline
+                    onEnded={() => { setPlayingId(null); }}
+                  >
+                    <source src={toPlayableMp4(item.src)} type="video/mp4" />
+                    <source src={item.src} />
+                  </video>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setPlayingId(item.id); }}
+                    aria-label={`Play ${item.title}`}
+                    className="group absolute inset-0 w-full h-full"
+                  >
+                    <img
+                      src={toThumb(item.src)}
+                      alt={item.title}
+                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-black/20" />
+                    <span className="absolute top-3 left-3 text-[10px] font-semibold tracking-wider bg-black/50 text-white px-2.5 py-1 rounded-full">
+                      {String(i + 1).padStart(2, "0")} / {String(items.length).padStart(2, "0")}
+                    </span>
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      <span className="w-14 h-14 rounded-full bg-gradient-to-r from-[#C8A96E] to-[#8B5A2B] text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-300">
+                        <Play size={20} fill="currentColor" className="ml-0.5" />
+                      </span>
+                    </span>
+                    <span className="absolute bottom-4 left-4 right-4 text-left text-white text-sm font-medium">
+                      {item.title}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Arrows */}
+      <div className="flex items-center justify-center gap-3 mt-4">
+        <button
+          type="button"
+          onClick={() => { scrollByCard(-1); }}
+          aria-label="Previous videos"
+          className="w-10 h-10 rounded-full bg-white border border-[#E8D9C0] text-[#8B5A2B] flex items-center justify-center hover:border-[#C8A96E] hover:shadow-md transition-all duration-200"
+        >
+          <ChevronLeft size={18} />
+        </button>
+        <p className="text-[10px] tracking-[0.25em] uppercase text-[#8B5A2B] font-semibold">
+          Swipe for more
+        </p>
+        <button
+          type="button"
+          onClick={() => { scrollByCard(1); }}
+          aria-label="Next videos"
+          className="w-10 h-10 rounded-full bg-white border border-[#E8D9C0] text-[#8B5A2B] flex items-center justify-center hover:border-[#C8A96E] hover:shadow-md transition-all duration-200"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── SALON MOMENTS GRID + LIGHTBOX ──────────────────────────────────────────
 
 interface SalonMomentsGridProps {
@@ -191,7 +373,7 @@ function SalonMomentsGrid({ items, onOpen }: SalonMomentsGridProps) {
           onClick={() => { onOpen(item); }}
           className="group relative rounded-2xl overflow-hidden border border-[#E8D9C0] text-left"
         >
-                    <img
+          <img
             src={item.src}
             alt={item.caption}
             className="w-full h-72 object-cover group-hover:scale-105 transition-transform duration-500"
@@ -230,7 +412,7 @@ function Lightbox({ item, onClose }: LightboxProps) {
           onClick={(e) => { e.stopPropagation(); }}
           className="relative max-w-2xl w-full"
         >
-                   <img
+          <img
             src={item.src}
             alt={item.caption}
             className="w-full max-h-[80vh] object-contain rounded-2xl"
@@ -329,6 +511,7 @@ export default function Gallery() {
   const [lightboxItem, setLightboxItem] = useState<SalonMoment | null>(null);
 
   const showBeforeAfter = activeTab === "All" || activeTab === "Before & After";
+  const showVideos = activeTab === "All" || activeTab === "Videos";
   const showMoments = activeTab === "All" || activeTab === "Salon Moments";
 
   return (
@@ -403,14 +586,43 @@ export default function Gallery() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
               {beforeAfterSets.map((set) => (
-                <BeforeAfterSlider
+                <div
                   key={set.id}
-                  before={set.before}
-                  after={set.after}
-                  title={set.title}
-                />
+                  className="w-full max-w-[240px] mx-auto sm:max-w-none"
+                >
+                  <BeforeAfterSlider
+                    before={set.before}
+                    after={set.after}
+                    title={set.title}
+                  />
+                </div>
               ))}
             </div>
+          </motion.section>
+        )}
+
+        {/* Videos */}
+        {showVideos && (
+          <motion.section
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            variants={fadeUp}
+            className="mb-20"
+          >
+            <div className="text-center mb-10">
+              <p className="text-[10px] tracking-[0.25em] uppercase text-[#C8A96E] font-semibold mb-2 flex items-center justify-center gap-2">
+                <Video size={12} /> Watch Us Work
+              </p>
+              <h2 className="font-serif text-3xl md:text-4xl font-bold text-[#2C1810] mb-3">
+                Salon Videos
+              </h2>
+              <p className="text-[#7A6050] text-sm md:text-base max-w-xl mx-auto leading-relaxed">
+                Take a look at our services and the Velvet experience in action.
+              </p>
+            </div>
+
+            <VideoGrid items={salonVideos} />
           </motion.section>
         )}
 

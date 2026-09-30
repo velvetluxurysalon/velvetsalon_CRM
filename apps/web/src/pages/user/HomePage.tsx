@@ -169,10 +169,10 @@ const isMembershipExpiringSoon = (expiry?: string): boolean => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CATEGORY_TABS: { label: string; img: string }[] = [
-  { label: "Haircut", img: "./assets/haircut.webp" },
-  { label: "Facial", img: "./assets/facial.webp" },
-  // { label: "Massage", img: "./assets/massage.webp" },
-  { label: "Groom/Bridal", img: "./assets/bridal.webp" },
+  { label: "Hair Styling", img: "./assets/haircut.webp" },
+  { label: "Facials & Skin", img: "./assets/facial.webp" },
+  { label: "Body Rituals ", img: "./assets/massage.webp" },
+  { label: "Bridal & Groom", img: "./assets/bridal.webp" },
 ];
 
 // Static fallback — used if the API has no active hero banners yet, or the
@@ -267,14 +267,14 @@ const COMBO_OFFERS: ComboOffer[] = [
     id: "executive-grooming-combo",
     title: "Executive Grooming Combo",
     items: "Hair Cut + Beard Trim & Shape + Head Massage",
-    img: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=500&h=350&fit=crop&q=85",
+    img: "./assets/home/1.webp",
     badge: "MOST BOOKED",
   },
   {
     id: "velvet-beauty-combo",
     title: "VELVET Beauty Combo",
     items: "Hair Cut + Facial + Classic Pedicure",
-    img: "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=500&h=350&fit=crop&q=85",
+    img: "./assets/home/2.webp",
     badge: "CUSTOMER FAVORITE",
   },
   {
@@ -288,7 +288,7 @@ const COMBO_OFFERS: ComboOffer[] = [
     id: "date-night-combo",
     title: "Date Night Combo",
     items: "For Him: Hair Cut + Beard Trim  ·  For Her: Hair Styling + Cleanup",
-    img: "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=500&h=350&fit=crop&q=85",
+    img: "./assets/home/4.webp",
     badge: "PERFECT FOR COUPLES",
   },
 ];
