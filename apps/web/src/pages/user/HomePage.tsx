@@ -284,6 +284,8 @@ const COMBO_OFFERS: ComboOffer[] = [
     img: "https://images.unsplash.com/photo-1519741497674-611481863552?w=500&h=350&fit=crop&q=85",
     badge: "BRIDAL FAVORITE",
   },
+
+  
   {
     id: "date-night-combo",
     title: "Date Night Combo",
