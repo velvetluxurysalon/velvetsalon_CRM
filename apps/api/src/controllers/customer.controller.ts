@@ -120,9 +120,18 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
   body.membershipTier = body.membershipTier.toLowerCase() as 'none' | 'silver' | 'gold' | 'platinum';
 }
 
+    // The form sends the referral CODE string as `referredBy`, but the schema's
+    // `referredBy` is an ObjectId (casting "" or a code string throws).
+    // Store the string in `referredByCode`, same as createCustomer does.
+    const { referredBy, ...rest } = body as Record<string, unknown>;
+    const update: Record<string, unknown> = { ...rest };
+    if (typeof referredBy === 'string') {
+      update.referredByCode = referredBy;
+    }
+
     const customer = await Customer.findByIdAndUpdate(
       req.params.id,
-      { $set: body },
+      { $set: update },
       { new: true, runValidators: true }
     ).lean();
 
@@ -133,7 +142,12 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
 
     res.json(customer);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to update customer', error: (err as Error).message });
+    const msg = (err as Error).message;
+    if (msg.includes('duplicate key') || msg.includes('E11000')) {
+      res.status(409).json({ message: 'A customer with this phone number already exists.' });
+      return;
+    }
+    res.status(500).json({ message: 'Failed to update customer', error: msg });
   }
 };
 
