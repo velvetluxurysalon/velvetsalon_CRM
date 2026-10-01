@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import crypto                from 'node:crypto';
 import mongoose              from 'mongoose';
 import { Bill }              from '../models/bill.model.js';
 import { Customer, ICustomer } from '../models/customer.model.js';
@@ -9,6 +10,14 @@ import { deductInventoryForBill } from '../services/inventoryDeduction.service.j
 import { resolveCouponDiscount, maybeCreateAutoCoupon, markCouponUsed } from './coupon.controller.js';
 import { generateInvoicePdf } from '../services/invoicePdf.service.js';   // ← added
 const LOYALTY_PER_RUPEE = 1 / 100; // 1 pt per ₹100
+
+// ── Public invoice link signing ─────────────────────────────────────────────
+const signBillNumber = (billNumber: string): string =>
+  crypto
+    .createHmac('sha256', process.env.INVOICE_LINK_SECRET ?? process.env.JWT_SECRET ?? '')
+    .update(billNumber)
+    .digest('base64url')
+    .slice(0, 24);
 
 // ── Staff ID → Name resolution ──────────────────────────────────────────────
 // REPLACED the old hardcoded STAFF_MAP ('1'..'4' → static names), which
@@ -77,6 +86,72 @@ export const getBillInvoicePdf = async (req: Request, res: Response): Promise<vo
     res.status(500).json({ message: 'Failed to generate invoice PDF', error: (err as Error).message });
   }
 };
+// ─── GET /api/bills/:id/invoice-link ───────────────────────────────────────
+// Authenticated: returns a shareable, login-free PDF link for a bill.
+export const getInvoiceLink = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (typeof id !== 'string' || !id) {
+      res.status(400).json({ message: 'Invalid id parameter' });
+      return;
+    }
+    const bill = mongoose.Types.ObjectId.isValid(id)
+      ? await Bill.findById(id).select('billNumber')
+      : await Bill.findOne({ billNumber: id.toUpperCase() }).select('billNumber');
+    if (!bill) {
+      res.status(404).json({ message: 'Bill not found.' });
+      return;
+    }
+    const base = (process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host') ?? ''}`).replace(/\/$/, '');
+    const token = `${bill.billNumber}.${signBillNumber(bill.billNumber)}`;
+    res.json({ url: `${base}/api/public/invoice/${token}` });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to create invoice link', error: (err as Error).message });
+  }
+};
+
+// ─── GET /api/public/invoice/:token (NO login) ─────────────────────────────
+export const getPublicInvoicePdf = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.params;
+    if (typeof token !== 'string' || !token.includes('.')) {
+      res.status(400).send('Invalid link');
+      return;
+    }
+    const dot = token.lastIndexOf('.');
+    const billNumber = token.slice(0, dot).toUpperCase();
+    const sig = token.slice(dot + 1);
+    const expected = signBillNumber(billNumber);
+
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      res.status(403).send('Invalid link');
+      return;
+    }
+
+    const bill = await Bill.findOne({ billNumber }).populate('customer', 'name phone');
+    if (!bill) {
+      res.status(404).send('Invoice not found');
+      return;
+    }
+
+    const staffNameMap = await buildStaffNameMap(bill.items);
+    const resolveStaffName = (staffId: string): string =>
+      bill.items.find(i => i.staffId === staffId)?.staffName
+      || staffNameMap.get(staffId)
+      || staffId;
+
+    const pdfBuffer = await generateInvoicePdf(bill, resolveStaffName);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Invoice-${bill.billNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[getPublicInvoicePdf] error:', err);
+    res.status(500).send('Failed to generate invoice');
+  }
+};
+
 // ─── Referral Reward ──────────────────────────────────────────────────────────
 //
 // Called after a bill is saved with status === 'paid'.

@@ -110,6 +110,9 @@ const MEMBERSHIP_CFG: Record<MembershipTier, { label: string; color: string; bg:
 const UPI_ID = 'paytm.s209biv@pty';
 const UPI_PAYEE_NAME = 'Velvet Premium Unisex Salon';
 
+// Replace with your real Google review / feedback form link
+const FEEDBACK_URL = 'https://g.page/r/CWB5ZgKh5KkEEBM/review';
+
 // Builds a upi://pay deep link with the amount baked in, then wraps it in a
 // free QR-image endpoint so we can just point an <img> at it — no extra
 // npm dependency needed.
@@ -320,7 +323,9 @@ export default function BillingPage() {
   const [stockLoading, setStockLoading] = useState(false);
   const [deductionResults, setDeductionResults] = useState<DeductionResult[]>([]);
   const [showConsumables, setShowConsumables] = useState(false);
-  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
+ const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
+const [sharingWa, setSharingWa] = useState(false);
+const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
 
   // Amazon-style download toast — shows progress, then success with a "View" action
   const [downloadToast, setDownloadToast] = useState<{
@@ -853,16 +858,60 @@ export default function BillingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadToast?.status, downloadToast?.billNumber]);
 
+     // Pre-fetch the PDF as soon as the invoice modal opens, so the WhatsApp
+  // click can call navigator.share() immediately (it needs a live user gesture).
+    useEffect(() => {
+    if (!showInvoice || !lastBill) {
+      waLinkRef.current = null;
+      return;
+    }
+    const billNo = lastBill.billNumber;
+    const state = { cancelled: false }; // ← CHANGED (was: let cancelled = false)
+    setSharingWa(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${API}/bills/${billNo}/invoice-link`, { headers: hdr() });
+        if (!res.ok) throw new Error();
+        const { url } = (await res.json()) as { url: string };
+        if (!state.cancelled) { // ← CHANGED (was: !cancelled)
+          waLinkRef.current = { billNumber: billNo, url };
+        }
+      } catch {
+        /* click handler falls back to text + download */
+      } finally {
+        setSharingWa(false);
+      }
+    })();
+    return () => {
+      state.cancelled = true; // ← CHANGED (was: cancelled = true)
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInvoice, lastBill?.billNumber]);
+
   const whatsappInvoice = (b: SavedBill) => {
+    const E = (cp: number) => String.fromCodePoint(cp); // safe emoji
     const lines = b.items.map((i) => `• ${i.serviceName} — ${fmtCur(i.price)}`).join('\n');
     const disc = b.membershipDiscount + b.discountAmount + b.loyaltyRedeemed;
     const couponLine = autoCoupon
-      ? `\n🎁 You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
+      ? `\n${E(0x1f381)} You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
       : '';
-    const msg = encodeURIComponent(
-      `🌸 *Velvet Premium Unisex Salon*\nInvoice #${b.billNumber}\nDate: ${new Date(b.createdAt).toLocaleDateString('en-IN')}\n\n${lines}\n\n${disc > 0 ? `Discount: −${fmtCur(disc)}\n` : ''}*Total: ${fmtCur(b.total)}*\nPayment: ${b.paymentMethod.toUpperCase()}\n${couponLine}\nThank you for visiting! 💛`,
+       const msg =
+      `*Velvet Premium Unisex Salon*\nInvoice #${b.billNumber}\nDate: ${new Date(b.date ?? b.createdAt).toLocaleDateString('en-IN')}\n\n${lines}\n\n${disc > 0 ? `Discount: −${fmtCur(disc)}\n` : ''}*Total: ${fmtCur(b.total)}*\nPayment: ${b.paymentMethod.toUpperCase()}\n${couponLine}` +
+      `\nThank you for visiting Velvet! We hope you loved your experience.\n` +
+           `We'd love your feedback: ${FEEDBACK_URL}`;
+
+       const cached = waLinkRef.current;
+    const link = cached?.billNumber === b.billNumber ? cached.url : null;
+
+    const finalMsg = link ? `${msg}\n\nDownload your invoice (PDF): ${link}` : msg;
+
+    // Link kedaikkala na fallback: PDF download aagum, manual ah attach pannalam
+    if (!link) void downloadInvoicePdf(b.billNumber);
+
+    window.open(
+      `https://api.whatsapp.com/send?phone=91${b.phone}&text=${encodeURIComponent(finalMsg)}`,
+      '_blank',
     );
-    window.open(`https://wa.me/91${b.phone}?text=${msg}`);
   };
 
   const initials = (name: string) =>
@@ -2524,15 +2573,16 @@ export default function BillingPage() {
                   </>
                 )}
               </button>
-              <button
+                           <button
                 className="bl-btn bl-btn-wa"
                 style={{ flex: 1 }}
-                onClick={() => {
+                disabled={sharingWa}
+                               onClick={() => {
                   whatsappInvoice(lastBill);
                 }}
               >
                 <Ic n="whatsapp" s={14} />
-                WhatsApp
+                {sharingWa ? 'Preparing…' : 'WhatsApp'}
               </button>
             </div>
           </div>

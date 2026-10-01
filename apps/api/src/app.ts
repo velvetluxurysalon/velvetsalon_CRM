@@ -23,6 +23,7 @@ import {
   shiftDefinitionRouter,
 } from './routes/shiftAttendance.routes.js';
 import couponRoutes from './routes/coupon.routes.js';
+import publicInvoiceRouter from './routes/publicInvoice.routes.js';
 
 
 dotenv.config();
@@ -75,6 +76,7 @@ app.use('/api/shifts', shiftDefinitionRouter);
 app.use('/api/shift-attendance', shiftAttendanceRouter);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/service-map', serviceMapRouter);
+app.use('/api/public', publicInvoiceRouter);
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });

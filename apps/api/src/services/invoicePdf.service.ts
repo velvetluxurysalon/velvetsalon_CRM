@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import type { Browser } from 'puppeteer-core';
@@ -174,15 +174,47 @@ function buildInvoiceHtml(bill: IBill, resolveStaffName: StaffNameResolver): str
 // `@sparticuz/chromium`, which only ships a Linux-compatible binary.
 let browserPromise: Promise<Browser> | null = null;
 
+// Local (non-Linux) dev: use an already-installed Chrome / Edge.
+// Override with CHROME_PATH in apps/api/.env if yours is elsewhere.
+const LOCAL_CHROME_PATHS = [
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+];
+
 async function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
     const puppeteerCore = await import('puppeteer-core');
-    const chromium = (await import('@sparticuz/chromium')).default;
 
-    browserPromise = puppeteerCore.launch({
-      headless: true,
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
+    if (process.platform === 'linux') {
+      // Production / serverless Linux -> bundled Chromium
+      const chromium = (await import('@sparticuz/chromium')).default;
+      browserPromise = puppeteerCore.launch({
+        headless: true,
+        args: chromium.args,
+        executablePath: await chromium.executablePath(),
+      });
+    } else {
+      // Local Windows / Mac -> installed Chrome or Edge
+      const executablePath =
+        process.env.CHROME_PATH ?? LOCAL_CHROME_PATHS.find((p) => existsSync(p));
+      if (!executablePath) {
+        throw new Error(
+          'Chrome/Edge not found. Install Chrome or set CHROME_PATH in apps/api/.env',
+        );
+      }
+      browserPromise = puppeteerCore.launch({
+        headless: true,
+        executablePath,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
+    }
+
+    // If launch fails, don't cache the rejected promise forever
+    void browserPromise.catch(() => {
+      browserPromise = null;
     });
   }
 

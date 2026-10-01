@@ -285,7 +285,7 @@ const COMBO_OFFERS: ComboOffer[] = [
     badge: "BRIDAL FAVORITE",
   },
 
-  
+
   {
     id: "date-night-combo",
     title: "Date Night Combo",
@@ -522,7 +522,7 @@ async function loadBanners() {
   if (!slide) return null;
 
  return (
-    <section className="relative w-full overflow-hidden mt-1 md:mt-1" style={{ height: "clamp(360px,58vw,655px)" }}>
+   <section className="relative w-full overflow-hidden mt-1 md:mt-1" style={{ height: "calc(clamp(360px,58vw,655px) + 88px)" }}>
       <AnimatePresence mode="wait">
         <motion.div
           key={current}
@@ -544,7 +544,7 @@ async function loadBanners() {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 28 }}
           transition={{ duration: 0.5 }}
-          className="absolute inset-0 flex flex-col justify-center px-6 sm:px-12 md:px-20 lg:px-28"
+          className="absolute inset-0 flex flex-col justify-center px-6 sm:px-12 md:px-20 lg:px-28 pb-[88px]"
         >
           <span className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#C8A96E] to-[#8B5A2B] text-white text-[10px] tracking-[0.2em] uppercase font-bold mb-3 w-fit shadow-lg">
             {slide.badge}
@@ -583,6 +583,16 @@ async function loadBanners() {
         className="absolute right-3 md:right-5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 flex items-center justify-center text-white hover:bg-[#C8A96E]/80 transition-all z-10 cursor-pointer"
       >
         <ChevronRight size={18} />
+      </button>
+
+            <button
+        onClick={() => {
+          navigate("contact");
+          resetTimer();
+        }}
+        className="absolute bottom-12 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-2 px-8 py-3 rounded-full bg-white text-[#2C1810] font-bold text-sm tracking-widest uppercase border-none cursor-pointer shadow-xl hover:scale-105 hover:bg-[#FAF7F2] transition-all duration-300 whitespace-nowrap"
+      >
+        Reserve Your Spot <ArrowRight size={15} />
       </button>
 
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-2 z-10">
