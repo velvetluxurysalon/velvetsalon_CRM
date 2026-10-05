@@ -11,12 +11,12 @@ export interface IEmployeeJoining extends Document {
   dateOfBirth?: Date;
   currentAddress?: string;
 
-  emergencyContactName: string;
+   emergencyContactName?: string;
   emergencyRelationship?: string;
-  emergencyPhone: string;
+  emergencyPhone?: string;
 
   position: string;
-  department: string;
+  department?: string;
   previousEmployer?: string;
   totalExperience?: string;
   agreedSalary?: string;
@@ -38,7 +38,7 @@ export interface IEmployeeJoining extends Document {
   ifscCode?: string;
 
   declarationAccepted: boolean;
-  signatureName: string;
+    signatureName?: string;
   declarationDate?: Date;
 
   documentsVerified?: 'yes' | 'no' | '';
@@ -63,12 +63,12 @@ const EmployeeJoiningSchema = new Schema<IEmployeeJoining>(
     dateOfBirth: { type: Date },
     currentAddress: { type: String, trim: true },
 
-    emergencyContactName: { type: String, required: true, trim: true },
+        emergencyContactName: { type: String, trim: true },
     emergencyRelationship: { type: String, trim: true },
-    emergencyPhone: { type: String, required: true, trim: true },
+    emergencyPhone: { type: String, trim: true },
 
     position: { type: String, required: true, trim: true },
-    department: { type: String, required: true, trim: true },
+    department: { type: String, trim: true },
     previousEmployer: { type: String, trim: true },
     totalExperience: { type: String, trim: true },
     agreedSalary: { type: String, trim: true },
@@ -92,7 +92,7 @@ const EmployeeJoiningSchema = new Schema<IEmployeeJoining>(
     ifscCode: { type: String, trim: true, select: false },
 
     declarationAccepted: { type: Boolean, required: true, default: false },
-    signatureName: { type: String, required: true, trim: true },
+        signatureName: { type: String, trim: true },
     declarationDate: { type: Date },
 
     documentsVerified: { type: String, enum: ['yes', 'no', ''], default: '' },

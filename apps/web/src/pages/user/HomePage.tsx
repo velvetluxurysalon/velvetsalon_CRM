@@ -114,6 +114,10 @@ const PORTAL_API = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) 
 // clears it immediately, so it never lingers or affects a normal visit.
 const GENDER_FILTER_KEY = "velvet_gender_filter";
 
+// Tells the Contact page to open on the "My Portal" tab when arriving from
+// the hero "Reserve Your Spot" button. Contact reads it once and clears it.
+const CONTACT_TAB_KEY = "velvet_contact_tab";
+
 interface PortalAppointmentLite {
   _id: string;
   service: string;
@@ -522,7 +526,7 @@ async function loadBanners() {
   if (!slide) return null;
 
  return (
-   <section className="relative w-full overflow-hidden mt-1 md:mt-1" style={{ height: "calc(clamp(360px,58vw,655px) + 88px)" }}>
+   <section className="relative w-full overflow-hidden" style={{ height: "calc(clamp(360px,58vw,655px) + 88px)" }}>
       <AnimatePresence mode="wait">
         <motion.div
           key={current}
@@ -585,8 +589,9 @@ async function loadBanners() {
         <ChevronRight size={18} />
       </button>
 
-            <button
+                       <button
         onClick={() => {
+          localStorage.setItem(CONTACT_TAB_KEY, "portal");
           navigate("contact");
           resetTimer();
         }}
@@ -1400,7 +1405,7 @@ export default function HomePage({ navigate, setActiveCat }: HomePageProps) {
   }, []);
 
   return (
-    <div className="bg-[#FAF7F2] min-h-screen overflow-hidden">
+<div  className="bg-[#FAF7F2] min-h-screen overflow-hidden">
           {showPromo && (
         <MembershipPromoModal
           onClose={() => {

@@ -8,63 +8,14 @@ interface EmployeeJoiningSummary {
   _id: string;
   fullName: string;
   position: string;
-  department: string;
   mobileNumber: string;
-  dateOfJoining?: string;
-  documentsVerified?: "" | "yes" | "no";
-  skillAssessment?: "" | "Beginner" | "Intermediate" | "Advanced" | "Expert";
+    totalExperience?: string;
   createdAt: string;
 }
 
-interface EmployeeJoiningDetail extends EmployeeJoiningSummary {
-  staffId?: string;
-  preferredName?: string;
-  whatsappNumber?: string;
-  dateOfBirth?: string;
-  currentAddress?: string;
-  emergencyContactName?: string;
-  emergencyRelationship?: string;
-  emergencyPhone?: string;
-  previousEmployer?: string;
-  totalExperience?: string;
-  agreedSalary?: string;
-  employmentType?: string;
-  probationPeriod?: string;
-  weeklyOff?: string;
-  skills?: string[];
-  strongestSkill?: string;
-  trainingRequired?: string;
-  documents?: string[];
-  aadhaarNumber?: string;
-  panNumber?: string;
-  bankName?: string;
-  accountHolderName?: string;
-  accountNumber?: string;
-  ifscCode?: string;
-  signatureName?: string;
-  declarationDate?: string;
-  joiningApprovedBy?: string;
-  probationReviewDate?: string;
-  managerRemarks?: string;
-  managerSignature?: string;
-}
-
-type VerifiedFilter = "all" | "yes" | "no" | "pending";
+type EmployeeJoiningDetail = EmployeeJoiningSummary;
 
 // ─── Static config ────────────────────────────────────────────────────────────
-const VERIFY_CFG = {
-  yes: { label: "Verified", color: "#15803d", bg: "#f0fdf4" },
-  no: { label: "Rejected", color: "#b91c1c", bg: "#fef2f2" },
-  "": { label: "Pending", color: "#b45309", bg: "#fffbeb" },
-} as const;
-
-const SKILL_CFG: Record<string, { color: string; bg: string }> = {
-  Beginner: { color: "#8a7560", bg: "#f5f0e8" },
-  Intermediate: { color: "#1d4ed8", bg: "#eff6ff" },
-  Advanced: { color: "#b8860b", bg: "#fffbeb" },
-  Expert: { color: "#7c3aed", bg: "#f5f3ff" },
-};
-
 const SWATCH_COLORS = [
   "#d4af37", "#b8860b", "#8a7050", "#6b5740",
   "#a0522d", "#8b4513", "#cd853f", "#daa520",
@@ -81,21 +32,6 @@ const avatarColor = (name: string) => {
   return SWATCH_COLORS[Math.abs(hash) % SWATCH_COLORS.length] ?? "#d4af37";
 };
 
-const fmtDate = (d?: string) => {
-  if (!d) return "—";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return d;
-  return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-};
-
-// Normalize any date-ish string into yyyy-mm-dd for <input type="date">
-const toDateInputValue = (d?: string) => {
-  if (!d) return "";
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "";
-  return dt.toISOString().slice(0, 10);
-};
-
 // ─── Small building blocks ──────────────────────────────────────────────────
 const Ic = ({ n, s = 16 }: { n: string; s?: number }) => {
   const paths: Record<string, string> = {
@@ -104,16 +40,10 @@ const Ic = ({ n, s = 16 }: { n: string; s?: number }) => {
     x: "M18 6L6 18M6 6l12 12",
     phone: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z",
     user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
-    calendar: "M3 4h18v18H3zM3 10h18M8 2v4M16 2v4",
-    shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
-    star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
-    bank: "M3 21h18M3 10h18M5 6l7-4 7 4M4 10v11M20 10v11M8 14v3M12 14v3M16 14v3",
-    id: "M2 4h20v16H2zM6 12a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM3 18c0-2 2-3.5 5-3.5s5 1.5 5 3.5M14 8h6M14 12h6M14 16h4",
-    signature: "M3 17c3-6 5 4 8-2 2-4 4 4 7-3M4 21h16",
     people: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
     check: "M20 6L9 17l-5-5",
     edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
-        trash: "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6",
+    trash: "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6",
     download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
   };
   return (
@@ -146,18 +76,16 @@ const Detail = ({ icon, label, value }: { icon?: string | undefined; label: stri
   </div>
 );
 
-// NEW: Field renders either a read-only Detail row or an editable input row,
-// depending on the `editing` flag. Used inside the detail modal so the same
-// grid works for both viewing and editing without duplicating layout markup.
+// Field renders either a read-only Detail row or an editable input row,
+// depending on the `editing` flag.
 const Field = ({
-  icon, label, value, editing, onChange, isDate,
+  icon, label, value, editing, onChange,
 }: {
   icon?: string | undefined;
   label: string;
   value?: string | undefined;
   editing: boolean;
   onChange?: ((v: string) => void) | undefined;
-  isDate?: boolean | undefined;
 }) => {
   if (editing) {
     return (
@@ -166,16 +94,16 @@ const Field = ({
         <div className="er-edit-input-wrap">
           {icon && <Ic n={icon} s={12} />}
           <input
-            type={isDate ? "date" : "text"}
+            type="text"
             className="er-edit-input"
-            value={isDate ? toDateInputValue(value) : value ?? ""}
+            value={value ?? ""}
             onChange={e => onChange?.(e.target.value)}
           />
         </div>
       </div>
     );
   }
-  return <Detail icon={icon} label={label} value={isDate ? fmtDate(value) : value} />;
+  return <Detail icon={icon} label={label} value={value} />;
 };
 
 const SectionCard = ({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) => (
@@ -200,28 +128,26 @@ export default function EmployeeRecordsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const [search, setSearch] = useState("");
-  const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>("all");
+   const [search, setSearch] = useState("");
 
-  // NEW: edit / delete state
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<EmployeeJoiningDetail>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-    const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const authHeaders = user?.token ? { Authorization: `Bearer ${user.token}` } : {};
 
-const load = async () => {
+  const load = async () => {
     setLoading(true);
     setError(null);
     try {
-          const res = await fetch(`${API_BASE}/api/employee-joining`, { headers: authHeaders });
+      const res = await fetch(`${API_BASE}/api/employee-joining`, { headers: authHeaders });
       if (!res.ok) {
         const body = await res.json().catch(() => null) as { message?: string; error?: string } | null;
-               throw new Error(body?.message ?? body?.error ?? `Failed to load records (${String(res.status)})`);
+        throw new Error(body?.message ?? body?.error ?? `Failed to load records (${String(res.status)})`);
       }
       const data = (await res.json()) as EmployeeJoiningSummary[];
       setRecords(data);
@@ -256,14 +182,12 @@ const load = async () => {
   const closeDetail = () => {
     setSelected(null);
     setDetailError(null);
-    // NEW: reset edit/delete state whenever the modal closes
     setIsEditing(false);
     setEditForm({});
     setSaveError(null);
     setConfirmDelete(false);
   };
 
-  // NEW: enter edit mode, seeding the form with the currently loaded record
   const startEdit = () => {
     if (!selected) return;
     setEditForm({ ...selected });
@@ -281,14 +205,6 @@ const load = async () => {
     setEditForm(prev => ({ ...prev, [key]: value }));
   };
 
-  const updateListField = (key: "skills" | "documents", value: string) => {
-    setEditForm(prev => ({
-      ...prev,
-      [key]: value.split(",").map(s => s.trim()).filter(Boolean),
-    }));
-  };
-
-  // NEW: save edits via PUT
   const saveEdit = async () => {
     if (!selected) return;
     setSaving(true);
@@ -312,7 +228,6 @@ const load = async () => {
     }
   };
 
-  // NEW: delete record via DELETE
   const deleteRecord = async () => {
     if (!selected) return;
     setDeleting(true);
@@ -336,80 +251,35 @@ const load = async () => {
   // ── Derived ───────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return records.filter(r => {
-      if (verifiedFilter === "yes" && r.documentsVerified !== "yes") return false;
-      if (verifiedFilter === "no" && r.documentsVerified !== "no") return false;
-      if (verifiedFilter === "pending" && (r.documentsVerified === "yes" || r.documentsVerified === "no")) return false;
+       return records.filter(r => {
       if (!q) return true;
       return (
         r.fullName.toLowerCase().includes(q) ||
         r.position.toLowerCase().includes(q) ||
-        r.department.toLowerCase().includes(q) ||
         r.mobileNumber.toLowerCase().includes(q)
       );
     });
-  }, [records, search, verifiedFilter]);
+  }, [records, search]);
 
-  const stats = useMemo(() => {
-    const total = records.length;
-    const verified = records.filter(r => r.documentsVerified === "yes").length;
-    const pending = records.filter(r => !r.documentsVerified).length;
-    const rejected = records.filter(r => r.documentsVerified === "no").length;
-    return { total, verified, pending, rejected };
-  }, [records]);
+  const total = records.length;
 
-    const detailSkillCfg = selected?.skillAssessment ? SKILL_CFG[selected.skillAssessment] : undefined;
-  const detailVerifyCfg = VERIFY_CFG[selected?.documentsVerified ?? ""];
-
-  // NEW: Excel export — fetches full detail (including Aadhaar/PAN/bank, which
-  // the list endpoint omits) for every currently filtered/searched record,
-  // then exports one column per field.
-  const downloadExcel = async () => {
+  // Excel export — one row per currently filtered/searched record.
+  const downloadExcel = () => {
     if (filtered.length === 0) return;
     setExporting(true);
     try {
-      const details = await Promise.all(
-        filtered.map(async r => {
-          try {
-            const res = await fetch(`${API_BASE}/api/employee-joining/${r._id}`, { headers: authHeaders });
-            if (!res.ok) return r as EmployeeJoiningDetail;
-            return (await res.json()) as EmployeeJoiningDetail;
-          } catch {
-            return r as EmployeeJoiningDetail;
-          }
-        })
-      );
-
-      const header = [
-        "Staff ID", "Full Name", "Preferred Name", "Position", "Department",
-        "Mobile", "WhatsApp", "Date of Birth", "Address",
-        "Emergency Contact", "Relationship", "Emergency Phone",
-        "Previous Employer", "Experience", "Agreed Salary", "Employment Type",
-        "Probation Period", "Weekly Off", "Skills", "Strongest Skill", "Training Required",
-        "Documents Submitted",
-        "Aadhaar Number", "PAN Number", "Bank Name", "Account Holder", "Account Number", "IFSC Code",
-        "Signature", "Declaration Date", "Approved By", "Probation Review Date",
-        "Manager Remarks", "Manager Signature",
-        "Date of Joining", "Documents Verified", "Skill Assessment",
-      ];
-
-            const rows = details.map(d => [
-        d.staffId ?? "", d.fullName, d.preferredName ?? "", d.position, d.department,
-        d.mobileNumber, d.whatsappNumber ?? "", fmtDate(d.dateOfBirth), d.currentAddress ?? "",
-        d.emergencyContactName ?? "", d.emergencyRelationship ?? "", d.emergencyPhone ?? "",
-        d.previousEmployer ?? "", d.totalExperience ?? "", d.agreedSalary ?? "", d.employmentType ?? "",
-        d.probationPeriod ?? "", d.weeklyOff ?? "", (d.skills ?? []).join(", "), d.strongestSkill ?? "", d.trainingRequired ?? "",
-        (d.documents ?? []).join(", "),
-        d.aadhaarNumber ?? "", d.panNumber ?? "", d.bankName ?? "", d.accountHolderName ?? "", d.accountNumber ?? "", d.ifscCode ?? "",
-        d.signatureName ?? "", fmtDate(d.declarationDate), d.joiningApprovedBy ?? "", fmtDate(d.probationReviewDate),
-        d.managerRemarks ?? "", d.managerSignature ?? "",
-        fmtDate(d.dateOfJoining), VERIFY_CFG[d.documentsVerified ?? ""].label, d.skillAssessment || "—",
+           const header = ["Full Name", "Position", "Mobile", "Experience"];
+      const rows = filtered.map(d => [
+        d.fullName,
+        d.position,
+        d.mobileNumber,
+        d.totalExperience ?? "",
       ]);
 
       const sheet = XLSX.utils.aoa_to_sheet([header, ...rows]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, sheet, "Employee Records");
-      XLSX.writeFile(wb, `employee_records_full_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      XLSX.writeFile(wb, `employee_records_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } finally {
       setExporting(false);
     }
@@ -460,7 +330,7 @@ const load = async () => {
         .er-spin{width:14px;height:14px;border:2px solid rgba(212,175,55,.3);border-top-color:#d4af37;border-radius:50%;animation:er-spin .7s linear infinite;flex-shrink:0}
         .er-empty{font-size:12px;color:#8a7560;text-align:center;padding:36px 0}
         .er-tbl-wrap{overflow-x:auto}
-        .er-tbl{width:100%;border-collapse:collapse;min-width:760px}
+        .er-tbl{width:100%;border-collapse:collapse;min-width:640px}
         .er-tbl th{font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#8a7560;padding:0 12px 10px;text-align:left;border-bottom:1px solid #f0e8d8}
         .er-tbl td{padding:12px;border-bottom:1px solid #f5f0e8;vertical-align:middle;font-size:13px;color:#2c1f0e}
         .er-tbl tr:last-child td{border-bottom:none}
@@ -468,7 +338,6 @@ const load = async () => {
         .er-tbl tr.er-row:hover{background:#faf8f4}
         .er-name-cell{display:flex;align-items:center;gap:10px}
         .er-name-primary{font-weight:500;color:#1a1208}
-        .er-name-sub{font-size:10px;color:#8a7560;margin-top:1px}
         .er-badge{font-size:10px;font-weight:500;padding:3px 9px;border-radius:20px;display:inline-block;white-space:nowrap}
         .er-view-btn{font-family:'Jost',sans-serif;font-size:11px;font-weight:500;color:#8B5A2B;background:none;border:none;cursor:pointer;letter-spacing:.05em;text-transform:uppercase}
         .er-view-btn:hover{color:#2C1810;text-decoration:underline}
@@ -526,11 +395,11 @@ const load = async () => {
             <div className="er-page-title">Employee Records</div>
             <div className="er-page-sub">Confidential — Internal HR &amp; Management Use Only</div>
           </div>
-                   <div className="er-topbar-right">
-                       <button
+          <div className="er-topbar-right">
+            <button
               className="er-icon-btn"
-              onClick={() => { void downloadExcel(); }}
-              title="Download Excel (full details)"
+              onClick={downloadExcel}
+              title="Download Excel"
               disabled={filtered.length === 0 || exporting}
             >
               {exporting ? <div className="er-spin" /> : <Ic n="download" s={14} />}
@@ -550,21 +419,9 @@ const load = async () => {
         <div className="er-body">
           {/* STATS */}
           <div className="er-stats">
-            <div className="er-stat">
-              <div className="er-stat-val">{stats.total}</div>
+                       <div className="er-stat">
+              <div className="er-stat-val">{total}</div>
               <div className="er-stat-lbl">Total Employees</div>
-            </div>
-            <div className="er-stat">
-              <div className="er-stat-val" style={{ color: "#15803d" }}>{stats.verified}</div>
-              <div className="er-stat-lbl">Verified</div>
-            </div>
-            <div className="er-stat">
-              <div className="er-stat-val" style={{ color: "#b45309" }}>{stats.pending}</div>
-              <div className="er-stat-lbl">Pending</div>
-            </div>
-            <div className="er-stat">
-              <div className="er-stat-val" style={{ color: "#b91c1c" }}>{stats.rejected}</div>
-              <div className="er-stat-lbl">Rejected</div>
             </div>
           </div>
 
@@ -579,27 +436,11 @@ const load = async () => {
                   <Ic n="search" s={15} />
                   <input
                     type="text"
-                    placeholder="Search by name, position, department, mobile…"
+                    placeholder="Search by name, position, mobile…"
                     value={search}
                     onChange={e => { setSearch(e.target.value); }}
                   />
-                </div>
-                <div className="er-filter-row">
-                  {([
-                    { key: "all", label: "All" },
-                    { key: "yes", label: "Verified" },
-                    { key: "pending", label: "Pending" },
-                    { key: "no", label: "Rejected" },
-                  ] as const).map(f => (
-                    <button
-                      key={f.key}
-                      className={`er-filter-btn${verifiedFilter === f.key ? " active" : ""}`}
-                      onClick={() => { setVerifiedFilter(f.key); }}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
+                               </div>
               </div>
 
               {loading && (
@@ -618,45 +459,24 @@ const load = async () => {
                       <tr>
                         <th>Name</th>
                         <th>Position</th>
-                        <th>Department</th>
                         <th>Mobile</th>
-                        <th>Joined</th>
-                        <th>Verified</th>
-                        <th>Skill</th>
+                                               <th>Experience</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map(r => {
-                        const vcfg = VERIFY_CFG[r.documentsVerified ?? ""];
-                        const scfg = r.skillAssessment ? SKILL_CFG[r.skillAssessment] : undefined;
+                                           {filtered.map(r => {
                         return (
                           <tr key={r._id} className="er-row" onClick={() => { void openDetail(r._id); }}>
                             <td>
                               <div className="er-name-cell">
                                 <EmpAvatar name={r.fullName} size={32} />
-                                <div>
-                                  <div className="er-name-primary">{r.fullName}</div>
-                                  <div className="er-name-sub">{r.department}</div>
-                                </div>
+                                <div className="er-name-primary">{r.fullName}</div>
                               </div>
                             </td>
                             <td>{r.position}</td>
-                            <td>{r.department}</td>
                             <td>{r.mobileNumber}</td>
-                            <td>{fmtDate(r.dateOfJoining)}</td>
-                            <td>
-                              <span className="er-badge" style={{ background: vcfg.bg, color: vcfg.color }}>
-                                {vcfg.label}
-                              </span>
-                            </td>
-                            <td>
-                              {scfg ? (
-                                <span className="er-badge" style={{ background: scfg.bg, color: scfg.color }}>
-                                  {r.skillAssessment}
-                                </span>
-                              ) : "—"}
-                            </td>
+                                                       <td>{r.totalExperience && r.totalExperience.trim() ? r.totalExperience : "—"}</td>
                             <td onClick={e => { e.stopPropagation(); }}>
                               <button className="er-view-btn" onClick={() => { void openDetail(r._id); }}>
                                 View
@@ -695,59 +515,20 @@ const load = async () => {
 
                 {selected && (
                   <div className="er-modal-sub">
-                    {isEditing ? (
-                      <>
-                        <input
-                          className="er-edit-input er-edit-inline"
-                          placeholder="Position"
-                         value={editForm.position ?? ""}
-                          onChange={e => { updateField("position", e.target.value); }}
-                        />
-                        <input
-                          className="er-edit-input er-edit-inline"
-                          placeholder="Department"
-                         value={editForm.department ?? ""}
-                          onChange={e => { updateField("department", e.target.value); }}
-                        />
-                        <select
-                          className="er-edit-select"
-                         value={editForm.documentsVerified ?? ""}
-                          onChange={e => { updateField("documentsVerified", e.target.value); }}
-                        >
-                          <option value="">Pending</option>
-                          <option value="yes">Verified</option>
-                          <option value="no">Rejected</option>
-                        </select>
-                        <select
-                          className="er-edit-select"
-                         value={editForm.skillAssessment ?? ""}
-                          onChange={e => { updateField("skillAssessment", e.target.value); }}
-                        >
-                          <option value="">No skill set</option>
-                          <option value="Beginner">Beginner</option>
-                          <option value="Intermediate">Intermediate</option>
-                          <option value="Advanced">Advanced</option>
-                          <option value="Expert">Expert</option>
-                        </select>
-                      </>
+                                       {isEditing ? (
+                      <input
+                        className="er-edit-input er-edit-inline"
+                        placeholder="Position"
+                        value={editForm.position ?? ""}
+                        onChange={e => { updateField("position", e.target.value); }}
+                      />
                     ) : (
-                      <>
-                        <span>{selected.position} · {selected.department}</span>
-                       <span className="er-badge" style={{ background: detailVerifyCfg.bg, color: detailVerifyCfg.color }}>
-  {detailVerifyCfg.label}
-</span>
-                        {selected.skillAssessment && detailSkillCfg && (
-                          <span className="er-badge" style={{ background: detailSkillCfg.bg, color: detailSkillCfg.color }}>
-                            {selected.skillAssessment}
-                          </span>
-                        )}
-                      </>
+                      <span>{selected.position}</span>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* NEW: edit / delete / save / cancel action buttons */}
               <div className="er-modal-actions">
                 {selected && !isEditing && (
                   <>
@@ -788,7 +569,6 @@ const load = async () => {
 
             {saveError && <div className="er-card"><div className="er-save-err">{saveError}</div></div>}
 
-            {/* NEW: delete confirmation */}
             {confirmDelete && (
               <div className="er-card er-confirm-card">
                 <div className="er-cb" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -820,106 +600,14 @@ const load = async () => {
             )}
 
             {selected && (
-              <>
-                <SectionCard icon="user" title="Personal & Contact">
-                  <Field editing={isEditing} label="Preferred Name"
-                    value={isEditing ? (editForm.preferredName as string) : selected.preferredName}
-                    onChange={v => { updateField("preferredName", v); }} />
-                  <Field editing={isEditing} icon="phone" label="WhatsApp"
-                    value={isEditing ? (editForm.whatsappNumber as string) : selected.whatsappNumber}
-                    onChange={v => { updateField("whatsappNumber", v); }} />
-                  <Field editing={isEditing} icon="calendar" label="Date of Birth" isDate
-                    value={isEditing ? (editForm.dateOfBirth as string) : selected.dateOfBirth}
-                    onChange={v => { updateField("dateOfBirth", v); }} />
-                  <Field editing={isEditing} label="Address"
-                    value={isEditing ? (editForm.currentAddress as string) : selected.currentAddress}
-                    onChange={v => { updateField("currentAddress", v); }} />
-                  <Field editing={isEditing} label="Emergency Contact"
-                    value={isEditing ? (editForm.emergencyContactName as string) : selected.emergencyContactName}
-                    onChange={v => { updateField("emergencyContactName", v); }} />
-                  <Field editing={isEditing} label="Relationship"
-                    value={isEditing ? (editForm.emergencyRelationship as string) : selected.emergencyRelationship}
-                    onChange={v => { updateField("emergencyRelationship", v); }} />
-                  <Field editing={isEditing} icon="phone" label="Emergency Phone"
-                    value={isEditing ? (editForm.emergencyPhone as string) : selected.emergencyPhone}
-                    onChange={v => { updateField("emergencyPhone", v); }} />
-                </SectionCard>
-
-                <SectionCard icon="shield" title="Employment">
-                  <Field editing={isEditing} label="Previous Employer"
-                    value={isEditing ? (editForm.previousEmployer as string) : selected.previousEmployer}
-                    onChange={v => { updateField("previousEmployer", v); }} />
-                  <Field editing={isEditing} label="Experience"
-                    value={isEditing ? (editForm.totalExperience as string) : selected.totalExperience}
-                    onChange={v => { updateField("totalExperience", v); }} />
-                  <Field editing={isEditing} label="Agreed Salary"
-                    value={isEditing ? (editForm.agreedSalary as string) : selected.agreedSalary}
-                    onChange={v => { updateField("agreedSalary", v); }} />
-                  <Field editing={isEditing} label="Employment Type"
-                    value={isEditing ? (editForm.employmentType as string) : selected.employmentType}
-                    onChange={v => { updateField("employmentType", v); }} />
-                  <Field editing={isEditing} label="Probation Period"
-                    value={isEditing ? (editForm.probationPeriod as string) : selected.probationPeriod}
-                    onChange={v => { updateField("probationPeriod", v); }} />
-                  <Field editing={isEditing} label="Weekly Off"
-                    value={isEditing ? (editForm.weeklyOff as string) : selected.weeklyOff}
-                    onChange={v => { updateField("weeklyOff", v); }} />
-                  <Field editing={isEditing} label="Skills (comma separated)"
-                    value={isEditing ? (editForm.skills as unknown as string[] | undefined)?.join(", ") : selected.skills?.join(", ")}
-                    onChange={v => { updateListField("skills", v); }} />
-                  <Field editing={isEditing} icon="star" label="Strongest Skill"
-                    value={isEditing ? (editForm.strongestSkill as string) : selected.strongestSkill}
-                    onChange={v => { updateField("strongestSkill", v); }} />
-                  <Field editing={isEditing} label="Training Required"
-                    value={isEditing ? (editForm.trainingRequired as string) : selected.trainingRequired}
-                    onChange={v => { updateField("trainingRequired", v); }} />
-                  <Field editing={isEditing} label="Documents Submitted (comma separated)"
-                    value={isEditing ? (editForm.documents as unknown as string[] | undefined)?.join(", ") : selected.documents?.join(", ")}
-                    onChange={v => { updateListField("documents", v); }} />
-                </SectionCard>
-
-                <SectionCard icon="bank" title="Banking & Identification">
-                  <Field editing={isEditing} icon="id" label="Aadhaar Number"
-                    value={isEditing ? (editForm.aadhaarNumber as string) : selected.aadhaarNumber}
-                    onChange={v => { updateField("aadhaarNumber", v); }} />
-                  <Field editing={isEditing} icon="id" label="PAN Number"
-                    value={isEditing ? (editForm.panNumber as string) : selected.panNumber}
-                    onChange={v => { updateField("panNumber", v); }} />
-                  <Field editing={isEditing} icon="bank" label="Bank Name"
-                    value={isEditing ? (editForm.bankName as string) : selected.bankName}
-                    onChange={v => { updateField("bankName", v); }} />
-                  <Field editing={isEditing} label="Account Holder"
-                    value={isEditing ? (editForm.accountHolderName as string) : selected.accountHolderName}
-                    onChange={v => { updateField("accountHolderName", v); }} />
-                  <Field editing={isEditing} label="Account Number"
-                    value={isEditing ? (editForm.accountNumber as string) : selected.accountNumber}
-                    onChange={v => { updateField("accountNumber", v); }} />
-                  <Field editing={isEditing} label="IFSC Code"
-                    value={isEditing ? (editForm.ifscCode as string) : selected.ifscCode}
-                    onChange={v => { updateField("ifscCode", v); }} />
-                </SectionCard>
-
-                <SectionCard icon="signature" title="Approval & Sign-off">
-                  <Field editing={isEditing} icon="signature" label="Signature"
-                    value={isEditing ? (editForm.signatureName as string) : selected.signatureName}
-                    onChange={v => { updateField("signatureName", v); }} />
-                  <Field editing={isEditing} icon="calendar" label="Declaration Date" isDate
-                    value={isEditing ? (editForm.declarationDate as string) : selected.declarationDate}
-                    onChange={v => { updateField("declarationDate", v); }} />
-                  <Field editing={isEditing} icon="check" label="Approved By"
-                    value={isEditing ? (editForm.joiningApprovedBy as string) : selected.joiningApprovedBy}
-                    onChange={v => { updateField("joiningApprovedBy", v); }} />
-                  <Field editing={isEditing} icon="calendar" label="Probation Review Date" isDate
-                    value={isEditing ? (editForm.probationReviewDate as string) : selected.probationReviewDate}
-                    onChange={v => { updateField("probationReviewDate", v); }} />
-                  <Field editing={isEditing} label="Manager Remarks"
-                    value={isEditing ? (editForm.managerRemarks as string) : selected.managerRemarks}
-                    onChange={v => { updateField("managerRemarks", v); }} />
-                  <Field editing={isEditing} icon="signature" label="Manager Signature"
-                    value={isEditing ? (editForm.managerSignature as string) : selected.managerSignature}
-                    onChange={v => { updateField("managerSignature", v); }} />
-                </SectionCard>
-              </>
+              <SectionCard icon="user" title="Employee Details">
+                <Field editing={isEditing} icon="phone" label="Mobile Number"
+                  value={isEditing ? editForm.mobileNumber : selected.mobileNumber}
+                  onChange={v => { updateField("mobileNumber", v); }} />
+                <Field editing={isEditing} label="Experience"
+                  value={isEditing ? editForm.totalExperience : selected.totalExperience}
+                  onChange={v => { updateField("totalExperience", v); }} />
+              </SectionCard>
             )}
           </div>
         </div>

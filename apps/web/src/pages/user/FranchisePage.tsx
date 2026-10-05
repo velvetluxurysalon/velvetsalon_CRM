@@ -245,15 +245,18 @@ function SectionKicker({ children }: { children: React.ReactNode }) {
 
 function FranchiseHero() {
   return (
-    <section className="relative w-full overflow-hidden" style={{ minHeight: "clamp(380px,52vw,650px)" }}>
+<section
+      className="relative w-full overflow-hidden flex items-center"
+      style={{ minHeight: "clamp(560px, 85vh, 900px)" }}
+    >
       <img
         src="https://images.unsplash.com/photo-1522337660859-02fbefca4702?w=1600&h=800&fit=crop&q=85"
         alt="VELVET Salon Interior"
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-cover object-[65%_center] sm:object-center"
       />
       <div className="absolute inset-0 bg-gradient-to-r from-[#1A0A05]/90 via-[#2C1810]/65 to-[#2C1810]/30" />
 
-      <div className="relative z-10 flex flex-col justify-center h-full min-h-[380px] md:min-h-[600px] px-6 sm:px-12 md:px-20 lg:px-28 py-24">
+<div className="relative z-10 flex flex-col justify-center w-full px-5 sm:px-12 md:px-20 lg:px-28 pt-28 pb-16 sm:pt-32 sm:pb-20">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
           <span className="inline-block px-3 py-1 rounded-full bg-gradient-to-r from-[#C8A96E] to-[#8B5A2B] text-white text-[10px] tracking-[0.2em] uppercase font-bold mb-4 w-fit shadow-lg">
             Franchise Investment Memorandum
@@ -271,8 +274,7 @@ function FranchiseHero() {
           <div className="flex flex-col sm:flex-row gap-3">
             <a
               href="tel:+919345678646"
-              className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-gradient-to-r from-[#C8A96E] to-[#8B5A2B] text-white font-semibold text-sm tracking-widest uppercase hover:scale-105 hover:shadow-xl transition-all duration-300 w-fit"
-            >
+className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full border border-white/30 text-white font-medium text-sm tracking-wider uppercase hover:bg-white/10 transition-all duration-300 w-fit">
               <PhoneCall size={15} /> Call the Franchise Desk
             </a>
             <a
@@ -759,7 +761,7 @@ export default function FranchisePage() {
   const topRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={topRef} className="bg-[#FAF7F2] min-h-screen overflow-hidden">
+<div ref={topRef} className="bg-[#FAF7F2] min-h-screen overflow-hidden">
       <FranchiseHero />
       <Foreword />
       <ValuePillars />
