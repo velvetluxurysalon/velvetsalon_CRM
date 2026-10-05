@@ -112,6 +112,7 @@ const UPI_PAYEE_NAME = 'Velvet Premium Unisex Salon';
 
 // Replace with your real Google review / feedback form link
 const FEEDBACK_URL = 'https://g.page/r/CWB5ZgKh5KkEEBM/review';
+const instagramUrl = 'https://www.instagram.com/velvet_unisex/';  
 
 // Builds a upi://pay deep link with the amount baked in, then wraps it in a
 // free QR-image endpoint so we can just point an <img> at it — no extra
@@ -895,10 +896,19 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     const couponLine = autoCoupon
       ? `\n${E(0x1f381)} You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
       : '';
-       const msg =
-      `*Velvet Premium Unisex Salon*\nInvoice #${b.billNumber}\nDate: ${new Date(b.date ?? b.createdAt).toLocaleDateString('en-IN')}\n\n${lines}\n\n${disc > 0 ? `Discount: −${fmtCur(disc)}\n` : ''}*Total: ${fmtCur(b.total)}*\nPayment: ${b.paymentMethod.toUpperCase()}\n${couponLine}` +
-      `\nThank you for visiting Velvet! We hope you loved your experience.\n` +
-           `We'd love your feedback: ${FEEDBACK_URL}`;
+           const msg =
+      `*Velvet Premium Unisex Salon*\n` +
+      `Invoice #${b.billNumber}\n` +
+      `Date: ${new Date(b.date ?? b.createdAt).toLocaleDateString('en-IN')}\n\n` +
+      `${lines}\n\n` +
+      `${disc > 0 ? `Discount: −${fmtCur(disc)}\n` : ''}` +
+      `*Total: ${fmtCur(b.total)}*\n` +
+      `Payment: ${b.paymentMethod.toUpperCase()}\n` +
+      `${couponLine}` +
+      `\nThank you for visiting Velvet! We hope you loved your experience.\n\n` +
+      `We'd love your feedback: ${FEEDBACK_URL}\n` +
+      `Follow us on Instagram: ${instagramUrl}\n\n` +
+      `Experience The Velvet Touch. ${E(0x1f90d)}`;
 
        const cached = waLinkRef.current;
     const link = cached?.billNumber === b.billNumber ? cached.url : null;

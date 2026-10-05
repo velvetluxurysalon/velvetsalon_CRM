@@ -245,9 +245,9 @@ function SectionKicker({ children }: { children: React.ReactNode }) {
 
 function FranchiseHero() {
   return (
-<section
+ <section
       className="relative w-full overflow-hidden flex items-center"
-      style={{ minHeight: "clamp(560px, 85vh, 900px)" }}
+      style={{ minHeight: "max(600px, calc(clamp(360px,58vw,655px) + 88px))" }}
     >
       <img
         src="https://images.unsplash.com/photo-1522337660859-02fbefca4702?w=1600&h=800&fit=crop&q=85"
@@ -272,14 +272,15 @@ function FranchiseHero() {
             this structure exists to replicate it across Tier 1, Tier 2, and Tier 3 markets in a disciplined, repeatable way.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
-            <a
+                      <a
               href="tel:+919345678646"
-className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full border border-white/30 text-white font-medium text-sm tracking-wider uppercase hover:bg-white/10 transition-all duration-300 w-fit">
+              className="inline-flex items-center justify-center gap-2 px-5 sm:px-7 py-3 sm:py-3.5 rounded-full bg-gradient-to-r from-[#C8A96E] to-[#8B5A2B] text-white font-semibold text-xs sm:text-sm tracking-widest uppercase hover:scale-105 hover:shadow-xl transition-all duration-300 w-full sm:w-fit"
+            >
               <PhoneCall size={15} /> Call the Franchise Desk
             </a>
             <a
               href="mailto:franchise@velvetluxurysalon.in"
-              className="inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full border border-white/30 text-white font-medium text-sm tracking-wider uppercase hover:bg-white/10 transition-all duration-300 w-fit"
+              className="inline-flex items-center justify-center gap-2 px-5 sm:px-7 py-3 sm:py-3.5 rounded-full border border-white/30 text-white font-medium text-xs sm:text-sm tracking-wider uppercase hover:bg-white/10 transition-all duration-300 w-full sm:w-fit"
             >
               <Mail size={15} /> Email Us
             </a>
