@@ -15,31 +15,25 @@ router.post('/login', async (req: Request, res: Response) => {
     return res.status(400).json({ message: 'Email and password are required.' });
 
   const user = await User.findOne({ email: email.toLowerCase() });
-  if (!user || !user.isActive)
-    return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!user || !user.isActive) return res.status(401).json({ message: 'Invalid credentials.' });
 
   const match = await user.comparePassword(password);
-  if (!match)
-    return res.status(401).json({ message: 'Invalid credentials.' });
+  if (!match) return res.status(401).json({ message: 'Invalid credentials.' });
 
-  if (role && user.role !== role)
-    return res.status(401).json({ message: 'Invalid credentials.' });
+  if (role && user.role !== role) return res.status(401).json({ message: 'Invalid credentials.' });
 
   const secret = process.env.JWT_SECRET;
-  if (!secret)
-    return res.status(500).json({ message: 'Server configuration error.' });
+  if (!secret) return res.status(500).json({ message: 'Server configuration error.' });
 
-  const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
-    secret,
-    { expiresIn: '8h' }
-  );
+  const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, secret, {
+    expiresIn: '12h',
+  });
 
   return res.status(200).json({
-    id:    user.id,
-    name:  user.name,
+    id: user.id,
+    name: user.name,
     email: user.email,
-    role:  user.role,
+    role: user.role,
     token,
   });
 });

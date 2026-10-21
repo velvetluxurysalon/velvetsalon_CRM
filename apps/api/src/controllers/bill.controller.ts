@@ -1,14 +1,18 @@
 import { Request, Response } from 'express';
-import crypto                from 'node:crypto';
-import mongoose              from 'mongoose';
-import { Bill }              from '../models/bill.model.js';
+import crypto from 'node:crypto';
+import mongoose from 'mongoose';
+import { Bill } from '../models/bill.model.js';
 import { Customer, ICustomer } from '../models/customer.model.js';
-import { Appointment }       from '../models/appointment.model.js';   // ← added
-import { StaffRoleMember }   from '../models/staffRole.model.js';     // ← added
+import { Appointment } from '../models/appointment.model.js'; // ← added
+import { StaffRoleMember } from '../models/staffRole.model.js'; // ← added
 import { CreateBillDto, BillQueryDto, validateCreateBillDto } from '../dtos/bill.dto.js';
 import { deductInventoryForBill } from '../services/inventoryDeduction.service.js';
-import { resolveCouponDiscount, maybeCreateAutoCoupon, markCouponUsed } from './coupon.controller.js';
-import { generateInvoicePdf } from '../services/invoicePdf.service.js';   // ← added
+import {
+  resolveCouponDiscount,
+  maybeCreateAutoCoupon,
+  markCouponUsed,
+} from './coupon.controller.js';
+import { generateInvoicePdf } from '../services/invoicePdf.service.js'; // ← added
 const LOYALTY_PER_RUPEE = 1 / 100; // 1 pt per ₹100
 
 // ── Public invoice link signing ─────────────────────────────────────────────
@@ -29,11 +33,13 @@ const signBillNumber = (billNumber: string): string =>
 // Batch-resolves every unique staffId in a bill's items in ONE query
 // (avoids N lookups) and returns a Map for cheap repeated access.
 async function buildStaffNameMap(items: { staffId: string }[]): Promise<Map<string, string>> {
-  const ids = [...new Set(items.map(i => i.staffId).filter(Boolean))];
-  const validIds = ids.filter(id => mongoose.Types.ObjectId.isValid(id));
+  const ids = [...new Set(items.map((i) => i.staffId).filter(Boolean))];
+  const validIds = ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
 
   const staff = validIds.length
-    ? await StaffRoleMember.find({ _id: { $in: validIds } }).select('_id name').lean()
+    ? await StaffRoleMember.find({ _id: { $in: validIds } })
+        .select('_id name')
+        .lean()
     : [];
 
   const map = new Map<string, string>();
@@ -71,19 +77,24 @@ export const getBillInvoicePdf = async (req: Request, res: Response): Promise<vo
 
     const staffNameMap = await buildStaffNameMap(bill.items);
     const resolveStaffName = (staffId: string): string =>
-      bill.items.find(i => i.staffId === staffId)?.staffName
-      || staffNameMap.get(staffId)
-      || staffId;
+      bill.items.find((i) => i.staffId === staffId)?.staffName ||
+      staffNameMap.get(staffId) ||
+      staffId;
 
     const pdfBuffer = await generateInvoicePdf(bill, resolveStaffName);
 
     const disposition = req.query.view === 'true' ? 'inline' : 'attachment';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `${disposition}; filename="Invoice-${bill.billNumber}.pdf"`);
+    res.setHeader(
+      'Content-Disposition',
+      `${disposition}; filename="Invoice-${bill.billNumber}.pdf"`,
+    );
     res.send(pdfBuffer);
   } catch (err) {
     console.error('[getBillInvoicePdf] error:', err);
-    res.status(500).json({ message: 'Failed to generate invoice PDF', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to generate invoice PDF', error: (err as Error).message });
   }
 };
 // ─── GET /api/bills/:id/invoice-link ───────────────────────────────────────
@@ -102,11 +113,15 @@ export const getInvoiceLink = async (req: Request, res: Response): Promise<void>
       res.status(404).json({ message: 'Bill not found.' });
       return;
     }
-    const base = (process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host') ?? ''}`).replace(/\/$/, '');
+    const base = (
+      process.env.PUBLIC_API_URL ?? `${req.protocol}://${req.get('host') ?? ''}`
+    ).replace(/\/$/, '');
     const token = `${bill.billNumber}.${signBillNumber(bill.billNumber)}`;
     res.json({ url: `${base}/api/public/invoice/${token}` });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to create invoice link', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to create invoice link', error: (err as Error).message });
   }
 };
 
@@ -138,9 +153,9 @@ export const getPublicInvoicePdf = async (req: Request, res: Response): Promise<
 
     const staffNameMap = await buildStaffNameMap(bill.items);
     const resolveStaffName = (staffId: string): string =>
-      bill.items.find(i => i.staffId === staffId)?.staffName
-      || staffNameMap.get(staffId)
-      || staffId;
+      bill.items.find((i) => i.staffId === staffId)?.staffName ||
+      staffNameMap.get(staffId) ||
+      staffId;
 
     const pdfBuffer = await generateInvoicePdf(bill, resolveStaffName);
     res.setHeader('Content-Type', 'application/pdf');
@@ -178,7 +193,7 @@ async function processReferralReward(
     // 2. Guard: only reward on the very first paid bill
     const paidCount = await Bill.countDocuments({
       customer: customerId,
-      status:   'paid',
+      status: 'paid',
     });
     if (paidCount !== 1) return { rewarded: false };
 
@@ -193,45 +208,43 @@ async function processReferralReward(
     //    - If customer was created via billing (walk-in with referredByCode),
     //      no entry exists yet — create it now before crediting
     let referral = referrer.referrals.find(
-      r => r.referredPhone === customerPhone && r.status === 'pending',
+      (r) => r.referredPhone === customerPhone && r.status === 'pending',
     );
 
     if (!referral) {
       // Check it wasn't already credited (avoid double-rewarding)
       const alreadyCredited = referrer.referrals.find(
-        r => r.referredPhone === customerPhone && r.status === 'credited',
+        (r) => r.referredPhone === customerPhone && r.status === 'credited',
       );
       if (alreadyCredited) return { rewarded: false };
 
       // Create the entry now
       referrer.referrals.push({
-        referredName:  customer.name,
+        referredName: customer.name,
         referredPhone: customerPhone,
-        date:          new Date().toISOString().slice(0, 10),
-        status:        'pending',
-        reward:        100,
+        date: new Date().toISOString().slice(0, 10),
+        status: 'pending',
+        reward: 100,
       } as never);
 
       await referrer.save();
 
       // Re-fetch the entry we just pushed
       referral = referrer.referrals.find(
-        r => r.referredPhone === customerPhone && r.status === 'pending',
+        (r) => r.referredPhone === customerPhone && r.status === 'pending',
       );
 
       if (!referral) return { rewarded: false };
     }
 
     // 5. Credit the referrer
-    referral.status        = 'credited';
-    referral.reward        = 100;
+    referral.status = 'credited';
+    referral.reward = 100;
     referrer.loyaltyPoints = (referrer.loyaltyPoints || 0) + 100;
 
     await referrer.save();
 
-    console.log(
-      `[referral] Credited ${referrer.name} +100 pts for referring ${customerPhone}`,
-    );
+    console.log(`[referral] Credited ${referrer.name} +100 pts for referring ${customerPhone}`);
 
     return { rewarded: true, referrerName: referrer.name };
   } catch (err) {
@@ -271,20 +284,31 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-        const {
-      phone, customerName, customerId,
-      items, subtotal, membershipDiscount,
-      discountType, discountValue, discountAmount,
-      loyaltyRedeemed, total, paymentMethod,
-      status, notes, date,
-      appointmentId,   // ← added
+    const {
+      phone,
+      customerName,
+      customerId,
+      items,
+      subtotal,
+      membershipDiscount,
+      discountType,
+      discountValue,
+      discountAmount,
+      loyaltyRedeemed,
+      total,
+      paymentMethod,
+      status,
+      notes,
+      date,
+      appointmentId, // ← added
     } = body;
 
     // ← ADD THIS BLOCK: pulled separately since CreateBillDto may not yet
     // declare these fields — cast avoids touching the DTO file.
-    const { redeemedReferralIds, referralDiscount } = req.body as {
+    const { redeemedReferralIds, referralDiscount, customerDob } = req.body as {
       redeemedReferralIds?: string[];
       referralDiscount?: number;
+      customerDob?: string;
     };
 
     // ── Recompute coupon discount server-side ─────────────────────────────
@@ -296,21 +320,24 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
     let couponCodeFinal: string | null = null;
 
     if (body.couponCode) {
-      const result = await resolveCouponDiscount(body.couponCode, Math.max(0, couponBase), phone.trim());
+      const result = await resolveCouponDiscount(
+        body.couponCode,
+        Math.max(0, couponBase),
+        phone.trim(),
+      );
       if (result.error) {
         res.status(400).json({ message: `Coupon problem: ${result.error}` });
         return;
       }
-      couponCodeFinal     = result.code;
+      couponCodeFinal = result.code;
       couponDiscountFinal = result.discountAmount;
     }
 
     // ── Resolve staff names once for this bill ───────────────────────────────
     const staffNameMap = await buildStaffNameMap(items);
-    const resolveStaffName = (staffId: string): string =>
-      staffNameMap.get(staffId) ?? staffId;
+    const resolveStaffName = (staffId: string): string => staffNameMap.get(staffId) ?? staffId;
 
-   // ── Atomically claim the appointment so it can't be billed twice ─────────
+    // ── Atomically claim the appointment so it can't be billed twice ─────────
     // This MUST happen before Bill.create — otherwise two near-simultaneous
     // requests (double-click, retry, etc.) can both pass validation and each
     // create their own Bill document for the same appointment, double-counting
@@ -320,7 +347,7 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
       sourceAppointment = await Appointment.findOneAndUpdate(
         { _id: appointmentId, status: { $ne: 'billed' } },
         { status: 'billed' },
-        { new: false } // returns null if it didn't match (already billed)
+        { new: false }, // returns null if it didn't match (already billed)
       );
 
       const apptExists = await Appointment.exists({ _id: appointmentId });
@@ -361,17 +388,15 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
         { phone: phone.trim() },
         {
           $setOnInsert: {
-            name:           customerName && customerName !== 'Walk-in'
-                              ? customerName
-                              : 'Walk-in',
-            phone:          phone.trim(),
-            loyaltyPoints:  0,
+            name: customerName && customerName !== 'Walk-in' ? customerName : 'Walk-in',
+            phone: phone.trim(),
+            loyaltyPoints: 0,
             membershipTier: 'none',
-            visitCount:     0,
-            totalSpent:     0,
+            visitCount: 0,
+            totalSpent: 0,
           },
         },
-        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
     }
 
@@ -380,33 +405,45 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-   // ── Create bill ──────────────────────────────────────────────────────────
+    // Existing profile still named "Walk-in" → use the name entered in Billing
+    const enteredName = customerName?.trim();
+    if (enteredName && enteredName !== 'Walk-in' && customer.name === 'Walk-in') {
+      customer.name = enteredName;
+    }
+
+    // Save the birthday entered in Billing, only if the customer has none yet
+    const dobDate = customerDob ? new Date(customerDob) : null;
+    if (dobDate && !isNaN(dobDate.getTime()) && !customer.dob) {
+      customer.dob = dobDate;
+    }
+
+    // ── Create bill ──────────────────────────────────────────────────────────
     // Attach resolved staffName to every item so downstream readers (customer
     // portal invoice, admin Visits tab, etc.) never need their own lookup.
-    const itemsWithStaffNames = items.map(i => ({
+    const itemsWithStaffNames = items.map((i) => ({
       ...i,
       staffName: staffNameMap.get(i.staffId) ?? i.staffId,
     }));
 
-        const bill = await Bill.create({
-      phone:              phone.trim(),
-      customerName:       customer.name,
-      customer:           customer._id,
-      items:              itemsWithStaffNames,
+    const bill = await Bill.create({
+      phone: phone.trim(),
+      customerName: customer.name,
+      customer: customer._id,
+      items: itemsWithStaffNames,
       subtotal,
       membershipDiscount,
       discountType,
       discountValue,
       discountAmount,
-      couponCode:         couponCodeFinal,
-      couponDiscount:     couponDiscountFinal,
+      couponCode: couponCodeFinal,
+      couponDiscount: couponDiscountFinal,
       loyaltyRedeemed,
-      referralDiscount:   referralDiscount || 0, // ← ADD THIS LINE (matches the field destructured earlier)
+      referralDiscount: referralDiscount || 0, // ← ADD THIS LINE (matches the field destructured earlier)
       total,
       paymentMethod,
       status,
-      notes:       notes ?? '',
-      date:        billDate,
+      notes: notes ?? '',
+      date: billDate,
       appointment: appointmentId ?? null,
     });
 
@@ -430,14 +467,12 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
 
     // ── Update customer stats ────────────────────────────────────────────────
     const pointsEarned = Math.floor(total * LOYALTY_PER_RUPEE);
-    const pointsUsed   = loyaltyRedeemed;
+    const pointsUsed = loyaltyRedeemed;
 
     // Deduplicated staff string for the visit record
-    const staffNames = [
-      ...new Set(items.map(i => resolveStaffName(i.staffId))),
-    ].join(', ');
+    const staffNames = [...new Set(items.map((i) => resolveStaffName(i.staffId)))].join(', ');
 
-   // ── Reconcile with any completion-sync entries instead of duplicating ──
+    // ── Reconcile with any completion-sync entries instead of duplicating ──
     // If this bill's source appointment was already marked "completed"
     // before being billed, appointmentService.syncCustomerVisitOnCompletion()
     // already pushed a services[]/visits[] entry for it (usually at price 0,
@@ -446,85 +481,88 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
     // customer ends up with exactly one record per visit, not two.
     let reconciledPriorTotal = 0;
 
-// Distribute the bill's actual (post-discount) total across items in
-// proportion to their gross price, so customer.services[].price always
-// matches what visits[].total shows for the same visit — item.price
-// itself (used for the Bill document, invoice, subtotal, etc.) is left
-// untouched.
-const grossItemsSubtotal = items.reduce((sum, i) => sum + i.price, 0) || 1;
-const netItemPrice = (itemPrice: number): number =>
-  Math.round((itemPrice / grossItemsSubtotal) * total);
+    // Distribute the bill's actual (post-discount) total across items in
+    // proportion to their gross price, so customer.services[].price always
+    // matches what visits[].total shows for the same visit — item.price
+    // itself (used for the Bill document, invoice, subtotal, etc.) is left
+    // untouched.
+    const grossItemsSubtotal = items.reduce((sum, i) => sum + i.price, 0) || 1;
+    const netItemPrice = (itemPrice: number): number =>
+      Math.round((itemPrice / grossItemsSubtotal) * total);
 
-for (const item of items) {
-  if (!item.serviceName) continue;
+    for (const item of items) {
+      if (!item.serviceName) continue;
 
-  const existingService = sourceAppointment
-    ? customer.services.find(
-        s => s.appointmentId?.toString() === sourceAppointment._id.toString() &&
-             s.service === item.serviceName &&
-             s.rating == null
-      )
-    : customer.services.find(
-        s => s.date.slice(0, 10) === billDate &&
-             s.service === item.serviceName &&
-             s.rating == null &&
-             s.price === 0
-      );
+      const existingService = sourceAppointment
+        ? customer.services.find(
+            (s) =>
+              s.appointmentId?.toString() === sourceAppointment._id.toString() &&
+              s.service === item.serviceName &&
+              s.rating == null,
+          )
+        : customer.services.find(
+            (s) =>
+              s.date.slice(0, 10) === billDate &&
+              s.service === item.serviceName &&
+              s.rating == null &&
+              s.price === 0,
+          );
 
- if (existingService) {
-    reconciledPriorTotal += existingService.price;
-    existingService.price    = netItemPrice(item.price);
-    existingService.staff    = resolveStaffName(item.staffId);
-    existingService.duration = item.duration;
-    existingService.date     = billDate;
-  } else {
-    customer.services.push({
-      date:     billDate,
-      service:  item.serviceName,
-      staff:    resolveStaffName(item.staffId),
-      duration: item.duration,
-      price:    netItemPrice(item.price),
-      appointmentId: appointmentId ?? null,
-    } as never);
-  }
-}
+      if (existingService) {
+        reconciledPriorTotal += existingService.price;
+        existingService.price = netItemPrice(item.price);
+        existingService.staff = resolveStaffName(item.staffId);
+        existingService.duration = item.duration;
+        existingService.date = billDate;
+      } else {
+        customer.services.push({
+          date: billDate,
+          service: item.serviceName,
+          staff: resolveStaffName(item.staffId),
+          duration: item.duration,
+          price: netItemPrice(item.price),
+          appointmentId: appointmentId ?? null,
+        } as never);
+      }
+    }
 
-   const billServiceNames = new Set(items.map(i => i.serviceName).filter(Boolean));
+    const billServiceNames = new Set(items.map((i) => i.serviceName).filter(Boolean));
 
-const existingVisit = sourceAppointment
-  ? customer.visits.find(
-      v => v.appointmentId?.toString() === sourceAppointment._id.toString()
-    )
-  : customer.visits.find(
-      v => v.date === billDate &&
-           v.services.length === billServiceNames.size &&
-           v.services.every(s => billServiceNames.has(s)) &&
-           v.total === 0   // ← same fix: only merge into an unbilled placeholder, not a real prior visit
-    );
+    const existingVisit = sourceAppointment
+      ? customer.visits.find(
+          (v) => v.appointmentId?.toString() === sourceAppointment._id.toString(),
+        )
+      : customer.visits.find(
+          (v) =>
+            v.date === billDate &&
+            v.services.length === billServiceNames.size &&
+            v.services.every((s) => billServiceNames.has(s)) &&
+            v.total === 0, // ← same fix: only merge into an unbilled placeholder, not a real prior visit
+        );
 
-if (existingVisit) {
-  reconciledPriorTotal = Math.max(reconciledPriorTotal, existingVisit.total);
-  existingVisit.date     = billDate;          // ← correct the date now that it's billed
-  existingVisit.total    = total;
-  existingVisit.staff    = staffNames;
-  existingVisit.notes    = notes ?? '';
-} else {
-  customer.visits.push({
-    date:     billDate,
-    services: items.map(i => i.serviceName),
-    staff:    staffNames,
-    total,
-    notes:    notes ?? '',
-    appointmentId: appointmentId ?? null,     // ← added, mirrors services[] fix
-  } as never);
-}
+    if (existingVisit) {
+      reconciledPriorTotal = Math.max(reconciledPriorTotal, existingVisit.total);
+      existingVisit.date = billDate; // ← correct the date now that it's billed
+      existingVisit.total = total;
+      existingVisit.staff = staffNames;
+      existingVisit.notes = notes ?? '';
+    } else {
+      customer.visits.push({
+        date: billDate,
+        services: items.map((i) => i.serviceName),
+        staff: staffNames,
+        total,
+        notes: notes ?? '',
+        appointmentId: appointmentId ?? null, // ← added, mirrors services[] fix
+      } as never);
+    }
 
     // Sync top-level counters — subtract whatever the completion-sync hook
     // already counted toward totalSpent for this visit, then add the real
     // billed total, so we don't double-count.
-        customer.visitCount    = customer.visits.length;
-    customer.totalSpent    = Math.max(0, (customer.totalSpent || 0) - reconciledPriorTotal) + total;
-    customer.lastVisit     = billDate;
+    customer.visitCount = customer.visits.length;
+    customer.totalSpent = Math.max(0, (customer.totalSpent || 0) - reconciledPriorTotal) + total;
+    customer.lastVisit = billDate;
 
     // ← ADD THIS BLOCK: mark any pending referrals the staff toggled on in
     // Billing as converted, and credit their reward to this customer (the
@@ -532,10 +570,7 @@ if (existingVisit) {
     let manualReferralReward = 0;
     if (Array.isArray(redeemedReferralIds) && redeemedReferralIds.length > 0) {
       customer.referrals.forEach((ref) => {
-        if (
-          redeemedReferralIds.includes(ref._id.toString()) &&
-          ref.status === 'pending'
-        ) {
+        if (redeemedReferralIds.includes(ref._id.toString()) && ref.status === 'pending') {
           ref.status = 'converted';
           manualReferralReward += ref.reward || 0;
         }
@@ -555,34 +590,35 @@ if (existingVisit) {
 
     // ── Deduct inventory for services rendered ───────────────────────────────
     // Fire-and-forget — bill is already saved, inventory failure never blocks response
-        deductInventoryForBill(itemsWithStaffNames, bill.billNumber, billDate)
-      .then(results => {
-        const skipped = results.filter(r => r.skipped);
+    deductInventoryForBill(itemsWithStaffNames, bill.billNumber, billDate)
+      .then((results) => {
+        const skipped = results.filter((r) => r.skipped);
         if (skipped.length) {
           console.warn('[bill] inventory deduction skipped for:', skipped);
         } else {
-          console.log(`[bill] inventory deducted for bill ${bill.billNumber} — ${String(results.length)} product(s)`);
+          console.log(
+            `[bill] inventory deducted for bill ${bill.billNumber} — ${String(results.length)} product(s)`,
+          );
         }
       })
-      .catch((err: unknown) => { console.error('[bill] inventory deduction error:', err); });
+      .catch((err: unknown) => {
+        console.error('[bill] inventory deduction error:', err);
+      });
 
-       // ── Process referral reward (only on paid bills) ──────────────────────────
-    let referralRewarded     = false;
+    // ── Process referral reward (only on paid bills) ──────────────────────────
+    let referralRewarded = false;
     let referralReferrerName: string | null = null;
 
     if (status === 'paid') {
-      const result = await processReferralReward(
-        customer._id,
-        phone.trim(),
-      );
-      referralRewarded     = result.rewarded;
+      const result = await processReferralReward(customer._id, phone.trim());
+      referralRewarded = result.rewarded;
       referralReferrerName = result.referrerName ?? null;
     }
 
     // ← ADD THIS BLOCK: surface the manual toggle-based conversion in the
     // same banner the frontend already reads (referral_rewarded / referral_referrer_name)
     if (manualReferralReward > 0) {
-      referralRewarded     = true;
+      referralRewarded = true;
       referralReferrerName = customer.name;
     }
 
@@ -599,15 +635,13 @@ if (existingVisit) {
     }
 
     // ── Return populated bill ────────────────────────────────────────────────
-    const populated = await Bill.findById(bill._id)
-      .populate('customer', 'name phone')
-      .lean();
+    const populated = await Bill.findById(bill._id).populate('customer', 'name phone').lean();
 
     res.status(201).json({
       ...populated,
       // Frontend reads these two fields to show a referral reward
       // toast/banner inside the invoice modal (BillingPage.tsx)
-      referral_rewarded:      referralRewarded,
+      referral_rewarded: referralRewarded,
       referral_referrer_name: referralReferrerName,
       // Frontend reads this to show a "you earned a coupon" banner and
       // include it in the WhatsApp invoice message
@@ -617,7 +651,7 @@ if (existingVisit) {
     console.error('[createBill] error:', err);
     res.status(500).json({
       message: 'Failed to create bill',
-      error:   (err as Error).message,
+      error: (err as Error).message,
     });
   }
 };
@@ -657,17 +691,25 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
 
     const body = req.body as Partial<CreateBillDto>;
 
-       const {
-      items, subtotal, membershipDiscount,
-      discountType, discountValue, discountAmount,
-      loyaltyRedeemed, total, paymentMethod,
-      status, notes, date,
+    const {
+      items,
+      subtotal,
+      membershipDiscount,
+      discountType,
+      discountValue,
+      discountAmount,
+      loyaltyRedeemed,
+      total,
+      paymentMethod,
+      status,
+      notes,
+      date,
     } = body;
 
     // ← ADD THIS BLOCK
     const { redeemedReferralIds } = req.body as { redeemedReferralIds?: string[] };
 
-     if (items !== undefined && (!Array.isArray(items) || items.length === 0)) {
+    if (items !== undefined && (!Array.isArray(items) || items.length === 0)) {
       res.status(400).json({ message: 'items must be a non-empty array.' });
       return;
     }
@@ -678,13 +720,17 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
 
     // ── Capture old totals BEFORE mutating, so we can reconcile customer stats ──
     const oldTotal = bill.total;
-    const oldDate  = bill.date;
+    const oldDate = bill.date;
 
     // ── Resolve staff names for any updated items, same as createBill ────────
-    let itemsWithStaffNames: (typeof items extends undefined ? never : NonNullable<typeof items>[number] & { staffName: string })[] | undefined;
+    let itemsWithStaffNames:
+      | (typeof items extends undefined
+          ? never
+          : NonNullable<typeof items>[number] & { staffName: string })[]
+      | undefined;
     if (items !== undefined) {
       const staffNameMapForUpdate = await buildStaffNameMap(items);
-      itemsWithStaffNames = items.map(i => ({
+      itemsWithStaffNames = items.map((i) => ({
         ...i,
         staffName: staffNameMapForUpdate.get(i.staffId) ?? i.staffId,
       }));
@@ -692,41 +738,45 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
 
     // ── Apply edits to the bill itself ──────────────────────────────────────
     if (itemsWithStaffNames !== undefined) bill.items = itemsWithStaffNames;
-    if (subtotal           !== undefined) bill.subtotal           = subtotal;
+    if (subtotal !== undefined) bill.subtotal = subtotal;
     if (membershipDiscount !== undefined) bill.membershipDiscount = membershipDiscount;
-    if (discountType       !== undefined) bill.discountType       = discountType;
-    if (discountValue      !== undefined) bill.discountValue      = discountValue;
-    if (discountAmount     !== undefined) bill.discountAmount     = discountAmount;
-    if (loyaltyRedeemed    !== undefined) bill.loyaltyRedeemed    = loyaltyRedeemed;
-    if (total              !== undefined) bill.total              = total;
-    if (paymentMethod      !== undefined) bill.paymentMethod      = paymentMethod;
-    if (status             !== undefined) bill.status             = status;
-    if (notes              !== undefined) bill.notes              = notes;
-    if (date               !== undefined) bill.date               = date;
+    if (discountType !== undefined) bill.discountType = discountType;
+    if (discountValue !== undefined) bill.discountValue = discountValue;
+    if (discountAmount !== undefined) bill.discountAmount = discountAmount;
+    if (loyaltyRedeemed !== undefined) bill.loyaltyRedeemed = loyaltyRedeemed;
+    if (total !== undefined) bill.total = total;
+    if (paymentMethod !== undefined) bill.paymentMethod = paymentMethod;
+    if (status !== undefined) bill.status = status;
+    if (notes !== undefined) bill.notes = notes;
+    if (date !== undefined) bill.date = date;
 
     // ── Recompute coupon discount server-side, if a coupon change was sent ──
     // Uses the bill's own (now-updated) subtotal/membershipDiscount/discountAmount
     // as the base, same order createBill uses. Passing couponCode: "" or null
     // clears the coupon from the bill.
-   let couponJustAppliedInEdit: string | null = null;
+    let couponJustAppliedInEdit: string | null = null;
 
     if (body.couponCode !== undefined) {
       const couponBase = bill.subtotal - bill.membershipDiscount - bill.discountAmount;
 
       if (!body.couponCode) {
-        bill.couponCode     = null;
+        bill.couponCode = null;
         bill.couponDiscount = 0;
       } else {
         // Skip re-validation if this bill already had this exact coupon applied —
         // otherwise re-saving an unrelated edit on the same bill would reject it
         // for being "already used" by itself.
         if (body.couponCode.trim().toUpperCase() !== bill.couponCode) {
-          const result = await resolveCouponDiscount(body.couponCode, Math.max(0, couponBase), bill.phone);
+          const result = await resolveCouponDiscount(
+            body.couponCode,
+            Math.max(0, couponBase),
+            bill.phone,
+          );
           if (result.error) {
             res.status(400).json({ message: `Coupon problem: ${result.error}` });
             return;
           }
-          bill.couponCode     = result.code;
+          bill.couponCode = result.code;
           bill.couponDiscount = result.discountAmount;
           couponJustAppliedInEdit = result.code;
         }
@@ -739,18 +789,17 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
       await markCouponUsed(couponJustAppliedInEdit);
     }
 
-   // ── Reconcile customer.services[] / visits[] / top-level stats ─────────
+    // ── Reconcile customer.services[] / visits[] / top-level stats ─────────
     if (bill.customer) {
       const customer = await Customer.findById(bill.customer);
       if (customer) {
         // Resolve staff names for this update the same way createBill does
         const staffNameMap = await buildStaffNameMap(bill.items);
-        const resolveStaffName = (staffId: string): string =>
-          staffNameMap.get(staffId) ?? staffId;
+        const resolveStaffName = (staffId: string): string => staffNameMap.get(staffId) ?? staffId;
 
-        const staffNames = [
-          ...new Set(bill.items.map(i => resolveStaffName(i.staffId))),
-        ].join(', ');
+        const staffNames = [...new Set(bill.items.map((i) => resolveStaffName(i.staffId)))].join(
+          ', ',
+        );
 
         // Update every services[] entry tied to this bill's appointment
         // (or, if no appointment, fall back to matching by old date — same
@@ -763,48 +812,47 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
 
           const match = apptId
             ? customer.services.find(
-                s => s.appointmentId?.toString() === apptId.toString() &&
-                     s.service === item.serviceName
+                (s) =>
+                  s.appointmentId?.toString() === apptId.toString() &&
+                  s.service === item.serviceName,
               )
             : customer.services.find(
-                s => s.date.slice(0, 10) === oldDate &&
-                     s.service === item.serviceName
+                (s) => s.date.slice(0, 10) === oldDate && s.service === item.serviceName,
               );
 
           if (match) {
-            match.price    = item.price;
-            match.staff    = resolveStaffName(item.staffId);
+            match.price = item.price;
+            match.staff = resolveStaffName(item.staffId);
             match.duration = item.duration;
-            match.date     = bill.date;
+            match.date = bill.date;
           }
         }
 
-       const matchVisit = apptId
-          ? customer.visits.find(
-              v => v.appointmentId?.toString() === apptId.toString()
-            )
-          : customer.visits.find(v => v.date === oldDate);
+        const matchVisit = apptId
+          ? customer.visits.find((v) => v.appointmentId?.toString() === apptId.toString())
+          : customer.visits.find((v) => v.date === oldDate);
 
         if (matchVisit) {
-          matchVisit.date  = bill.date;
+          matchVisit.date = bill.date;
           matchVisit.total = bill.total;
           matchVisit.staff = staffNames;
           matchVisit.notes = bill.notes;
         }
 
-               // Adjust totalSpent by the DELTA between old and new total —
+        // Adjust totalSpent by the DELTA between old and new total —
         // not a full re-add, since this visit was already counted once.
         customer.totalSpent = Math.max(0, (customer.totalSpent || 0) - oldTotal) + bill.total;
-        customer.lastVisit  = customer.visits.map(v => v.date).sort().at(-1) ?? customer.lastVisit;
+        customer.lastVisit =
+          customer.visits
+            .map((v) => v.date)
+            .sort()
+            .at(-1) ?? customer.lastVisit;
 
         // ← ADD THIS BLOCK: same referral-conversion logic as createBill
         if (Array.isArray(redeemedReferralIds) && redeemedReferralIds.length > 0) {
           let manualReferralReward = 0;
           customer.referrals.forEach((ref) => {
-            if (
-              redeemedReferralIds.includes(ref._id.toString()) &&
-              ref.status === 'pending'
-            ) {
+            if (redeemedReferralIds.includes(ref._id.toString()) && ref.status === 'pending') {
               ref.status = 'converted';
               manualReferralReward += ref.reward || 0;
             }
@@ -820,16 +868,14 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
       }
     }
 
-    const populated = await Bill.findById(bill._id)
-      .populate('customer', 'name phone')
-      .lean();
+    const populated = await Bill.findById(bill._id).populate('customer', 'name phone').lean();
 
     res.json(populated);
   } catch (err) {
     console.error('[updateBill] error:', err);
     res.status(500).json({
       message: 'Failed to update bill.',
-      error:   (err as Error).message,
+      error: (err as Error).message,
     });
   }
 };

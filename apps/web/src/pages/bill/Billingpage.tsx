@@ -112,7 +112,7 @@ const UPI_PAYEE_NAME = 'Velvet Premium Unisex Salon';
 
 // Replace with your real Google review / feedback form link
 const FEEDBACK_URL = 'https://g.page/r/CWB5ZgKh5KkEEBM/review';
-const instagramUrl = 'https://www.instagram.com/velvet_unisex/';  
+const instagramUrl = 'https://www.instagram.com/velvet_unisex/';
 
 // Builds a upi://pay deep link with the amount baked in, then wraps it in a
 // free QR-image endpoint so we can just point an <img> at it — no extra
@@ -288,6 +288,8 @@ export default function BillingPage() {
   const [searchParams] = useSearchParams(); // ← ADD
   const appointmentId = searchParams.get('appointmentId'); // ← ADD
   const [customer, setCustomer] = useState<CustomerInfo | null>(null);
+  const [customerName, setCustomerName] = useState('');
+  const [customerDob, setCustomerDob] = useState('');
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupState, setLookupState] = useState<'idle' | 'found' | 'new' | 'error'>('idle');
@@ -324,9 +326,9 @@ export default function BillingPage() {
   const [stockLoading, setStockLoading] = useState(false);
   const [deductionResults, setDeductionResults] = useState<DeductionResult[]>([]);
   const [showConsumables, setShowConsumables] = useState(false);
- const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
-const [sharingWa, setSharingWa] = useState(false);
-const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
+  const [sharingWa, setSharingWa] = useState(false);
+  const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
 
   // Amazon-style download toast — shows progress, then success with a "View" action
   const [downloadToast, setDownloadToast] = useState<{
@@ -339,7 +341,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState('');
 
-    // ── Referral reward state ──────────────────────────────────────────────────
+  // ── Referral reward state ──────────────────────────────────────────────────
   const [referralReward, setReferralReward] = useState<{
     rewarded: boolean;
     referrerName?: string;
@@ -347,7 +349,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
   // ← ADD THIS LINE: tracks which of the customer's pending referrals the
   // staff has toggled "on" to be redeemed/converted on this bill.
   const [selectedReferralIds, setSelectedReferralIds] = useState<string[]>([]);
-    const [autoCoupon, setAutoCoupon] = useState<{
+  const [autoCoupon, setAutoCoupon] = useState<{
     code: string;
     discountValue: number;
     expiryDate: string;
@@ -357,7 +359,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     anniversary: boolean;
   } | null>(null);
 
-    const subtotal = items.reduce((s, i) => s + i.price, 0);
+  const subtotal = items.reduce((s, i) => s + i.price, 0);
   const isCustomerBirthdayToday = customer ? isTodayMonthDay(customer.dob) : false;
   const isCustomerAnniversaryToday = customer ? isTodayMonthDay(customer.anniversary) : false;
   const membershipPct = customer ? MEMBERSHIP_DISCOUNT[customer.membershipTier] : 0;
@@ -371,7 +373,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
   const afterManual = afterMembership - manualDisc;
   const couponDisc = appliedCoupon?.discountAmount ?? 0;
   const afterCoupon = Math.max(0, afterManual - couponDisc);
-    const maxLoyalty = customer
+  const maxLoyalty = customer
     ? Math.min(
         Math.floor(customer.loyaltyPoints / 10) * 10,
         Math.floor(afterCoupon * 0.2),
@@ -477,7 +479,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     };
   }, [items, fetchStockForItems]);
 
-   const lookupCustomer = useCallback(async (p: string) => {
+  const lookupCustomer = useCallback(async (p: string) => {
     if (p.length < 10) {
       setCustomer(null);
       setLookupState('idle');
@@ -488,7 +490,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
       const res = await fetch(`${API}/customers?q=${p}`, { headers: hdr() });
       if (!res.ok) throw new Error();
       const data = (await res.json()) as CustomerInfo[];
-           const found = data.find((c) => c.phone === p);
+      const found = data.find((c) => c.phone === p);
       setCustomer(found ?? null);
       setLookupState(found ? 'found' : 'new');
       setSelectedReferralIds([]); // ← ADD THIS LINE: reset toggles for the new lookup
@@ -701,7 +703,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     }
     setSaving(true);
     setApiError('');
-        const stripKey = (item: BillItem): Omit<BillItem, '_key'> => {
+    const stripKey = (item: BillItem): Omit<BillItem, '_key'> => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional discard of the local-only React key
       const { _key, ...rest } = item;
       return rest;
@@ -718,22 +720,26 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
 
     const payload = {
       phone,
-      customerName: customer?.name ?? 'Walk-in',
+      customerName:
+        customer && customer.name !== 'Walk-in'
+          ? customer.name
+          : customerName.trim() || customer?.name || 'Walk-in',
       customerId: customer?._id,
+      customerDob: customerDob || undefined,
       items: discountedItems,
       subtotal,
       membershipDiscount: membershipDisc,
       discountType,
       discountValue: dv,
       discountAmount: manualDisc,
-           couponCode: appliedCoupon?.code,
+      couponCode: appliedCoupon?.code,
       loyaltyRedeemed: loyaltyDisc,
       total,
       paymentMethod,
       status,
       notes,
       date: apptDate ?? todayStr,
-           appointmentId: appointmentId || undefined,
+      appointmentId: appointmentId || undefined,
       redeemedReferralIds: selectedReferralIds, // ← tells the backend which pending referrals to mark converted + credit
       referralDiscount: referralDisc, // ← ADD THIS LINE: the ₹ amount deducted from this bill for the toggled referrals
     };
@@ -761,7 +767,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
 
       setAutoCoupon(data.auto_coupon ?? null);
 
-            setLastBill(bill);
+      setLastBill(bill);
       setInvoiceOccasion(
         isCustomerBirthdayToday || isCustomerAnniversaryToday
           ? { birthday: isCustomerBirthdayToday, anniversary: isCustomerAnniversaryToday }
@@ -791,6 +797,8 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
       setItems([]);
       setPhone('');
       setCustomer(null);
+      setCustomerName('');
+      setCustomerDob('');
       setLookupState('idle');
       setDiscountValue(0);
       setRedeemLoyalty(false);
@@ -799,7 +807,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
       setCouponCode('');
       setCouponError('');
       setNotes('');
-            setPaymentMethod('cash');
+      setPaymentMethod('cash');
       setStockMap(new Map());
       setUpiPaymentConfirmed(false);
       setEditingBillId(null);
@@ -859,9 +867,9 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadToast?.status, downloadToast?.billNumber]);
 
-     // Pre-fetch the PDF as soon as the invoice modal opens, so the WhatsApp
+  // Pre-fetch the PDF as soon as the invoice modal opens, so the WhatsApp
   // click can call navigator.share() immediately (it needs a live user gesture).
-    useEffect(() => {
+  useEffect(() => {
     if (!showInvoice || !lastBill) {
       waLinkRef.current = null;
       return;
@@ -874,7 +882,8 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
         const res = await fetch(`${API}/bills/${billNo}/invoice-link`, { headers: hdr() });
         if (!res.ok) throw new Error();
         const { url } = (await res.json()) as { url: string };
-        if (!state.cancelled) { // ← CHANGED (was: !cancelled)
+        if (!state.cancelled) {
+          // ← CHANGED (was: !cancelled)
           waLinkRef.current = { billNumber: billNo, url };
         }
       } catch {
@@ -896,21 +905,22 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
     const couponLine = autoCoupon
       ? `\n${E(0x1f381)} You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
       : '';
-           const msg =
+    const msg =
       `*Velvet Premium Unisex Salon*\n` +
       `Invoice #${b.billNumber}\n` +
+      (b.customer?.name && b.customer.name !== 'Walk-in' ? `Customer: ${b.customer.name}\n` : '') +
       `Date: ${new Date(b.date ?? b.createdAt).toLocaleDateString('en-IN')}\n\n` +
       `${lines}\n\n` +
-      `${disc > 0 ? `Discount: −${fmtCur(disc)}\n` : ''}` +
+      (disc > 0 ? `Discount: −${fmtCur(disc)}\n` : '') +
       `*Total: ${fmtCur(b.total)}*\n` +
       `Payment: ${b.paymentMethod.toUpperCase()}\n` +
-      `${couponLine}` +
+      couponLine +
       `\nThank you for visiting Velvet! We hope you loved your experience.\n\n` +
       `We'd love your feedback: ${FEEDBACK_URL}\n` +
       `Follow us on Instagram: ${instagramUrl}\n\n` +
       `Experience The Velvet Touch. ${E(0x1f90d)}`;
 
-       const cached = waLinkRef.current;
+    const cached = waLinkRef.current;
     const link = cached?.billNumber === b.billNumber ? cached.url : null;
 
     const finalMsg = link ? `${msg}\n\nDownload your invoice (PDF): ${link}` : msg;
@@ -1380,7 +1390,50 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                     }}
                   />
                 </div>
-                                {lookupState === 'found' && customer && (
+
+                {phone.length >= 10 &&
+                  lookupState !== 'idle' &&
+                  (!customer || customer.name === 'Walk-in' || !customer.dob) && (
+                    <>
+                      {(!customer || customer.name === 'Walk-in') && (
+                        <div className="bl-phone-wrap" style={{ marginTop: 10 }}>
+                          <span className="bl-phone-ico">
+                            <Ic n="user" s={15} />
+                          </span>
+                          <input
+                            className="bl-phone-input"
+                            placeholder="Customer name…"
+                            value={customerName}
+                            onChange={(e) => {
+                              setCustomerName(e.target.value);
+                            }}
+                          />
+                        </div>
+                      )}
+                      {(!customer || !customer.dob) && (
+                        <div className="bl-phone-wrap" style={{ marginTop: 10 }}>
+                          <span
+                            className="bl-phone-ico"
+                            style={{ fontSize: 10, fontWeight: 500, letterSpacing: '.06em' }}
+                          >
+                            DOB
+                          </span>
+                          <input
+                            className="bl-phone-input"
+                            type="date"
+                            title="Birthday"
+                            max={todayStr}
+                            value={customerDob}
+                            onChange={(e) => {
+                              setCustomerDob(e.target.value);
+                            }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                {lookupState === 'found' && customer && (
                   <div className="bl-cust-found">
                     <div className="bl-cust-avatar">{initials(customer.name)}</div>
                     <div style={{ flex: 1 }}>
@@ -1414,24 +1467,32 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                   </div>
                 )}
 
-                               {lookupState === 'found' && customer && (isCustomerBirthdayToday || isCustomerAnniversaryToday) && (
-                  <div
-                    className="bl-note-info"
-                    style={{ background: '#fdf2f8', border: '1px solid #fbcfe8', color: '#9d174d' }}
-                  >
-                    <Ic n="gift" s={14} />
-                    {isCustomerBirthdayToday && isCustomerAnniversaryToday
-                      ? "It's their birthday and anniversary today — remember to offer the birthday/anniversary discount!"
-                      : isCustomerBirthdayToday
-                        ? "It's their birthday today — remember to offer the birthday discount!"
-                        : "It's their anniversary today — remember to offer the anniversary discount!"}
-                  </div>
-                )}
-                               {/* ← REPLACED BLOCK: one toggle per pending referral instead of a static note */}
+                {lookupState === 'found' &&
+                  customer &&
+                  (isCustomerBirthdayToday || isCustomerAnniversaryToday) && (
+                    <div
+                      className="bl-note-info"
+                      style={{
+                        background: '#fdf2f8',
+                        border: '1px solid #fbcfe8',
+                        color: '#9d174d',
+                      }}
+                    >
+                      <Ic n="gift" s={14} />
+                      {isCustomerBirthdayToday && isCustomerAnniversaryToday
+                        ? "It's their birthday and anniversary today — remember to offer the birthday/anniversary discount!"
+                        : isCustomerBirthdayToday
+                          ? "It's their birthday today — remember to offer the birthday discount!"
+                          : "It's their anniversary today — remember to offer the anniversary discount!"}
+                    </div>
+                  )}
+                {/* ← REPLACED BLOCK: one toggle per pending referral instead of a static note */}
                 {lookupState === 'found' &&
                   customer &&
                   (customer.referrals?.filter((r) => r.status === 'pending').length ?? 0) > 0 && (
-                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div
+                      style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
+                    >
                       {customer.referrals
                         ?.filter((r) => r.status === 'pending')
                         .map((r) => {
@@ -1457,7 +1518,9 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                                 </div>
                                 <div style={{ fontSize: 11, color: '#8a7560', marginTop: 2 }}>
                                   ₹{r.reward} reward pending —{' '}
-                                  {isOn ? 'will be marked converted on this bill' : 'toggle to use this referral'}
+                                  {isOn
+                                    ? 'will be marked converted on this bill'
+                                    : 'toggle to use this referral'}
                                 </div>
                               </div>
                               <Ic n="gift" s={14} />
@@ -2058,7 +2121,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
           </div>
 
           {/* RIGHT — Summary */}
-                    <div className="bl-right">
+          <div className="bl-right">
             <div className="bl-sum-hd">
               <div className="bl-sum-title">Bill Summary</div>
               <div className="bl-sum-date">
@@ -2069,7 +2132,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                   year: 'numeric',
                 })}
               </div>
-                        </div>
+            </div>
 
             <div className="bl-sum-scroll">
               {items.length === 0 ? (
@@ -2108,7 +2171,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                       <span>−{fmtCur(couponDisc)}</span>
                     </div>
                   )}
-                                    {loyaltyDisc > 0 && (
+                  {loyaltyDisc > 0 && (
                     <div className="bl-sum-line bl-saving-line">
                       <span>Loyalty Points</span>
                       <span>−{fmtCur(loyaltyDisc)}</span>
@@ -2149,17 +2212,21 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                       ? 'UPI'
                       : paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)}
                   </div>
-                                    {customer && (
+                  {customer && (
                     <div className="bl-earn-info">
                       <Ic n="gift" s={12} />
                       Will earn ~{Math.floor(total / 100)} loyalty pts on this bill
                     </div>
                   )}
-                                   {/* ← ADD THIS BLOCK: confirms which referral(s) will be redeemed on this bill */}
+                  {/* ← ADD THIS BLOCK: confirms which referral(s) will be redeemed on this bill */}
                   {selectedReferralIds.length > 0 && customer && (
                     <div
                       className="bl-earn-info"
-                      style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8' }}
+                      style={{
+                        background: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        color: '#1d4ed8',
+                      }}
                     >
                       <Ic n="gift" s={12} />
                       {selectedReferralIds.length} referral
@@ -2287,7 +2354,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                     ))
                   )}
                 </div>
-                          )}
+              )}
             </div>
 
             <div className="bl-sum-actions">
@@ -2328,7 +2395,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
       </div>
       {/* Invoice Modal */}
       {showInvoice && lastBill && (
-               <div
+        <div
           className="bl-overlay"
           onClick={() => {
             setShowInvoice(false);
@@ -2348,7 +2415,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                 <div className="bl-modal-title">Invoice</div>
                 <div className="bl-modal-sub">#{lastBill.billNumber}</div>
               </div>
-                           <button
+              <button
                 className="bl-modal-close"
                 onClick={() => {
                   setShowInvoice(false);
@@ -2379,7 +2446,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                     </div>{' '}
                   </div>
                 </div>
-                               <div className="inv-cust">
+                <div className="inv-cust">
                   <div className="inv-cust-lbl">Bill To</div>
                   <div className="inv-cust-name">
                     {lastBill.customer?.name ?? 'Walk-in Customer'}
@@ -2444,7 +2511,7 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                       <span>−{fmtCur(lastBill.discountAmount)}</span>
                     </div>
                   )}
-                                    {lastBill.loyaltyRedeemed > 0 && (
+                  {lastBill.loyaltyRedeemed > 0 && (
                     <div className="inv-tr save">
                       <span>Loyalty Redeemed</span>
                       <span>−{fmtCur(lastBill.loyaltyRedeemed)}</span>
@@ -2583,11 +2650,11 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
                   </>
                 )}
               </button>
-                           <button
+              <button
                 className="bl-btn bl-btn-wa"
                 style={{ flex: 1 }}
                 disabled={sharingWa}
-                               onClick={() => {
+                onClick={() => {
                   whatsappInvoice(lastBill);
                 }}
               >
@@ -2598,43 +2665,62 @@ const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
           </div>
         </div>
       )}
-       {/* Amazon-style download toast */}
+      {/* Amazon-style download toast */}
       {downloadToast && (
-        <div className="bl-toast" style={{ position:"fixed" }}>
+        <div className="bl-toast" style={{ position: 'fixed' }}>
           <div className={`bl-toast-icon ${downloadToast.status}`}>
-            {downloadToast.status === "loading" && <div className="bl-spinner-sm" style={{ borderTopColor:"#b8860b" }}/>}
-            {downloadToast.status === "success" && <Ic n="check" s={17}/>}
-            {downloadToast.status === "error" && <Ic n="alert" s={17}/>}
+            {downloadToast.status === 'loading' && (
+              <div className="bl-spinner-sm" style={{ borderTopColor: '#b8860b' }} />
+            )}
+            {downloadToast.status === 'success' && <Ic n="check" s={17} />}
+            {downloadToast.status === 'error' && <Ic n="alert" s={17} />}
           </div>
           <div className="bl-toast-body">
             <div className="bl-toast-title">
-              {downloadToast.status === "loading" && "Preparing your invoice…"}
-              {downloadToast.status === "success" && "Invoice downloaded"}
-              {downloadToast.status === "error"   && "Couldn't download invoice"}
+              {downloadToast.status === 'loading' && 'Preparing your invoice…'}
+              {downloadToast.status === 'success' && 'Invoice downloaded'}
+              {downloadToast.status === 'error' && "Couldn't download invoice"}
             </div>
             <div className="bl-toast-sub">#{downloadToast.billNumber}</div>
-            {downloadToast.status === "success" && downloadToast.blobUrl && (
+            {downloadToast.status === 'success' && downloadToast.blobUrl && (
               <div className="bl-toast-actions">
-                <button className="bl-toast-link" onClick={() => { window.open(downloadToast.blobUrl, "_blank"); }}>
+                <button
+                  className="bl-toast-link"
+                  onClick={() => {
+                    window.open(downloadToast.blobUrl, '_blank');
+                  }}
+                >
                   View PDF
                 </button>
-                <button className="bl-toast-link" onClick={() => { void downloadInvoicePdf(downloadToast.billNumber); }}>
+                <button
+                  className="bl-toast-link"
+                  onClick={() => {
+                    void downloadInvoicePdf(downloadToast.billNumber);
+                  }}
+                >
                   Download again
                 </button>
               </div>
             )}
-            {downloadToast.status === "error" && (
+            {downloadToast.status === 'error' && (
               <div className="bl-toast-actions">
-                <button className="bl-toast-link" onClick={() => { void downloadInvoicePdf(downloadToast.billNumber); }}>
+                <button
+                  className="bl-toast-link"
+                  onClick={() => {
+                    void downloadInvoicePdf(downloadToast.billNumber);
+                  }}
+                >
                   Try again
                 </button>
               </div>
             )}
           </div>
-          {downloadToast.status !== "loading" && (
-            <button className="bl-toast-close" onClick={dismissDownloadToast}><Ic n="x" s={13}/></button>
+          {downloadToast.status !== 'loading' && (
+            <button className="bl-toast-close" onClick={dismissDownloadToast}>
+              <Ic n="x" s={13} />
+            </button>
           )}
-          {downloadToast.status === "success" && <div className="bl-toast-bar"/>}
+          {downloadToast.status === 'success' && <div className="bl-toast-bar" />}
         </div>
       )}
     </>
@@ -2662,24 +2748,47 @@ function ServicePicker({
 
   const allCategories = ['All', ...SERVICE_CATEGORIES];
 
+  // How many times each service has been billed (most used first)
+  const [freq, setFreq] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const state = { cancelled: false };
+    void (async () => {
+      try {
+        const res = await fetch(`${API}/bills?limit=500`, { headers: hdr() });
+        if (!res.ok) return;
+        const bills = (await res.json()) as { items?: { serviceName: string }[] }[];
+        const counts: Record<string, number> = {};
+        for (const b of bills)
+          for (const it of b.items ?? [])
+            counts[it.serviceName] = (counts[it.serviceName] ?? 0) + 1;
+        if (!state.cancelled) setFreq(counts);
+      } catch {
+        /* keep normal catalogue order */
+      }
+    })();
+    return () => {
+      state.cancelled = true;
+    };
+  }, []);
+
   const filtered = SERVICES_CAT.filter((s) => {
     const matchQ = s.name.toLowerCase().includes(query.toLowerCase());
     const matchC = activeCategory === 'All' || s.category === activeCategory;
     return matchQ && matchC;
-  });
+  }).sort((a, b) => (freq[b.name] ?? 0) - (freq[a.name] ?? 0));
 
   // ← ADD: turns the typed name/price into a catalogue-shaped object so it
   // flows through the exact same staff-assign + onAdd path as a real service.
- const useCustomService = () => {
-  if (!customName.trim() || !customPrice) return;
-  setSel({
-    id: `custom-${nk()}`,
-    name: customName.trim(),
-    price: customPrice,
-    duration: 0,
-    category: 'Custom',
-  } as ServiceCatalogue);
-};
+  const useCustomService = () => {
+    if (!customName.trim() || !customPrice) return;
+    setSel({
+      id: `custom-${nk()}`,
+      name: customName.trim(),
+      price: customPrice,
+      duration: 0,
+      category: 'Custom',
+    } as ServiceCatalogue);
+  };
 
   return (
     <div className="bl-picker">
@@ -2838,9 +2947,18 @@ function ServicePicker({
                 onAdd(sel, staff);
                 setSel(null);
                 setStaff('');
-                setCustomMode(false); {/* ← ADD: reset back to the catalogue view after adding */}
-                setCustomName('');    {/* ← ADD */}
-                setCustomPrice('');   {/* ← ADD */}
+                setCustomMode(false);
+                {
+                  /* ← ADD: reset back to the catalogue view after adding */
+                }
+                setCustomName('');
+                {
+                  /* ← ADD */
+                }
+                setCustomPrice('');
+                {
+                  /* ← ADD */
+                }
               }
             }}
           >
