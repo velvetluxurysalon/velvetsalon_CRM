@@ -23,6 +23,8 @@ pnpm lint
 # Type check
 pnpm typecheck
 ```
+# test run command for .env.test
+node --env-file=.env.test --import=tsx --watch src/index.ts
 
 ## Tech Stack
 
@@ -73,7 +75,7 @@ UNLICENSED — Proprietary. All rights reserved.
 | File Export | SheetJS (xlsx), jsPDF               |
 | WhatsApp    | Twilio / WA Business API            |
 | SMS         | Twilio / MSG91                      |
-| Hosting     | Vercel (web) + Railway (api)        |
+| Hosting     | netlify (web) + Render (api) + Database (MongoDB)       |
 
 ---
 

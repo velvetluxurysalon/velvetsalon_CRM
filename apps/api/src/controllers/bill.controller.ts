@@ -879,3 +879,92 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
     });
   }
 };
+
+// ─── DELETE /api/bills/:id ────────────────────────────────────────────────────
+//
+// Admin only. Removes the bill, reverses what it added to the customer
+// (visit, service lines, total spent, loyalty points), and re-opens the
+// linked appointment so it can be billed again.
+//
+export const deleteBill = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (typeof id !== 'string' || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ message: 'Invalid bill ID.' });
+      return;
+    }
+
+    const bill = await Bill.findById(id);
+    if (!bill) {
+      res.status(404).json({ message: 'Bill not found.' });
+      return;
+    }
+
+    // ── Reverse the customer's stats (non-critical — never blocks the delete) ──
+    if (bill.customer) {
+      try {
+        const customer = await Customer.findById(bill.customer);
+        if (customer) {
+          const apptId = bill.appointment;
+
+          // Remove the visit this bill created
+          const visitIdx = apptId
+            ? customer.visits.findIndex((v) => v.appointmentId?.toString() === apptId.toString())
+            : customer.visits.findIndex((v) => v.date === bill.date && v.total === bill.total);
+          if (visitIdx !== -1) customer.visits.splice(visitIdx, 1);
+
+          // Remove the service lines this bill created
+          for (const item of bill.items) {
+            const svcIdx = apptId
+              ? customer.services.findIndex(
+                  (s) =>
+                    s.appointmentId?.toString() === apptId.toString() &&
+                    s.service === item.serviceName,
+                )
+              : customer.services.findIndex(
+                  (s) => s.date.slice(0, 10) === bill.date && s.service === item.serviceName,
+                );
+            if (svcIdx !== -1) customer.services.splice(svcIdx, 1);
+          }
+
+          const pointsEarned = Math.floor(bill.total * LOYALTY_PER_RUPEE);
+          customer.visitCount = customer.visits.length;
+          customer.totalSpent = Math.max(0, (customer.totalSpent || 0) - bill.total);
+          customer.loyaltyPoints = Math.max(
+            0,
+            (customer.loyaltyPoints || 0) - pointsEarned + (bill.loyaltyRedeemed || 0),
+          );
+          customer.lastVisit =
+            customer.visits
+              .map((v) => v.date)
+              .sort()
+              .at(-1) ?? customer.lastVisit;
+
+          await customer.save();
+        }
+      } catch (custErr) {
+        console.error('[deleteBill] customer reconcile failed:', custErr);
+      }
+    }
+
+    // ── Re-open the source appointment so it can be billed again ────────────
+    if (bill.appointment) {
+      try {
+        await Appointment.findByIdAndUpdate(bill.appointment, { status: 'completed', bill: null });
+      } catch (apptErr) {
+        console.error('[deleteBill] appointment reset failed:', apptErr);
+      }
+    }
+
+    await bill.deleteOne();
+
+    res.json({ message: 'Bill deleted.' });
+  } catch (err) {
+    console.error('[deleteBill] error:', err);
+    res.status(500).json({
+      message: 'Failed to delete bill.',
+      error: (err as Error).message,
+    });
+  }
+};

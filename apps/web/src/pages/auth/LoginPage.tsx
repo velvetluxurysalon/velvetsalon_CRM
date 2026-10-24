@@ -1,24 +1,40 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth, type Role } from "../../context/AuthContext";
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth, type Role } from '../../context/AuthContext';
 
 // ─── Role config ──────────────────────────────────────────────────────────────
 const ROLES: { value: Role; label: string; desc: string }[] = [
-  { value: "admin",        label: "Admin",        desc: "Full access" },
-  { value: "receptionist", label: "Receptionist", desc: "Bookings & billing" },
-  { value: "staff",        label: "Staff",        desc: "Appointments only" },
+  { value: 'admin', label: 'Admin', desc: 'Full access' },
+  { value: 'receptionist', label: 'Receptionist', desc: 'Bookings & billing' },
+  { value: 'staff', label: 'Staff', desc: 'Appointments only' },
 ];
 
 const EyeIcon = ({ open }: { open: boolean }) =>
   open ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
     </svg>
   ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
       <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
@@ -29,26 +45,32 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  const [role, setRole] = useState<Role>("admin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>('admin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
-const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
-      e.preventDefault();
-    setError("");
+  // Download the dashboard code in the background while the user types,
+  // so signing in feels instant.
+  useEffect(() => {
+    void import('../dashboard/DashboardPage');
+  }, []);
+
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError('');
     if (!email || !password) {
-      setError("Please fill in all fields.");
+      setError('Please fill in all fields.');
       return;
     }
     setLoading(true);
     try {
       await login(email, password, role);
-      void navigate("/dashboard");
+      void navigate('/dashboard');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Login failed. Try again.");
+      setError(err instanceof Error ? err.message : 'Login failed. Try again.');
     } finally {
       setLoading(false);
     }
@@ -57,9 +79,7 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Jost:wght@300;400;500&display=swap');
-
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+               *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         .vl-root {
           min-height: 100vh;
@@ -311,7 +331,6 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
       `}</style>
 
       <div className="vl-root">
-
         {/* ── Left panel ── */}
         <div className="vl-panel">
           <div className="vl-panel-bg" />
@@ -319,24 +338,29 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
           <div className="vl-panel-content">
             <div className="vl-logo-wrap">
               <div className="vl-logo-icon">
-  <img src="/assets/logo.webp" alt="Velvet" className="vl-logo-img" />
-</div>
+                <img src="/assets/logo.webp" alt="Velvet" className="vl-logo-img" />
+              </div>
               <span className="vl-logo-text">Velvet</span>
             </div>
             <h1 className="vl-tagline">
-              Where beauty<br />meets <em>precision</em>
+              Where beauty
+              <br />
+              meets <em>precision</em>
             </h1>
             <p className="vl-sub">Premium Unisex Salon</p>
             <div className="vl-divider" />
             <ul className="vl-features">
               {[
-                "Smart appointment scheduling",
-                "Ready billing & invoices",
-                "Loyalty points & memberships",
-                "Real-time staff performance",
-                "WhatsApp invoice sharing",
+                'Smart appointment scheduling',
+                'Ready billing & invoices',
+                'Loyalty points & memberships',
+                'Real-time staff performance',
+                'WhatsApp invoice sharing',
               ].map((f) => (
-                <li key={f}><span className="vl-feat-dot" />{f}</li>
+                <li key={f}>
+                  <span className="vl-feat-dot" />
+                  {f}
+                </li>
               ))}
             </ul>
           </div>
@@ -345,22 +369,31 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
         {/* ── Right form ── */}
         <div className="vl-form-side">
           <div className="vl-form-card">
-
             <div className="vl-form-header">
               <p className="vl-form-eyebrow">Salon CRM</p>
-              <h2 className="vl-form-title">Welcome<br /><em>back</em></h2>
+              <h2 className="vl-form-title">
+                Welcome
+                <br />
+                <em>back</em>
+              </h2>
             </div>
 
-            <form onSubmit={(e) => { void handleSubmit(e); }} noValidate>
-
+            <form
+              onSubmit={(e) => {
+                void handleSubmit(e);
+              }}
+              noValidate
+            >
               {/* Role selector */}
               <div className="vl-roles" role="group" aria-label="Select your role">
                 {ROLES.map((r) => (
                   <button
                     key={r.value}
                     type="button"
-                    className={`vl-role-btn${role === r.value ? " active" : ""}`}
-                    onClick={() => { setRole(r.value); }}
+                    className={`vl-role-btn${role === r.value ? ' active' : ''}`}
+                    onClick={() => {
+                      setRole(r.value);
+                    }}
                     aria-pressed={role === r.value}
                   >
                     <span className="vl-role-label">{r.label}</span>
@@ -371,7 +404,9 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
 
               {/* Email */}
               <div className="vl-field">
-                <label htmlFor="vl-email" className="vl-label">Email address</label>
+                <label htmlFor="vl-email" className="vl-label">
+                  Email address
+                </label>
                 <div className="vl-input-wrap">
                   <input
                     id="vl-email"
@@ -380,29 +415,37 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
                     placeholder="you@velvetcrm.in"
                     autoComplete="email"
                     value={email}
-                    onChange={(e) => { setEmail(e.target.value); }}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                    }}
                   />
                 </div>
               </div>
 
               {/* Password */}
               <div className="vl-field">
-                <label htmlFor="vl-password" className="vl-label">Password</label>
+                <label htmlFor="vl-password" className="vl-label">
+                  Password
+                </label>
                 <div className="vl-input-wrap">
                   <input
                     id="vl-password"
-                    type={showPassword ? "text" : "password"}
+                    type={showPassword ? 'text' : 'password'}
                     className="vl-input has-icon"
                     placeholder="••••••••"
                     autoComplete="current-password"
                     value={password}
-                    onChange={(e) => { setPassword(e.target.value); }}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                    }}
                   />
                   <button
                     type="button"
                     className="vl-eye-btn"
-                    onClick={() => { setShowPassword((v) => !v); }}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    onClick={() => {
+                      setShowPassword((v) => !v);
+                    }}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -417,8 +460,15 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
               {/* Error */}
               {error && (
                 <div className="vl-error" role="alert">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
                     <circle cx="12" cy="12" r="10" />
                     <line x1="12" y1="8" x2="12" y2="12" />
                     <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -431,25 +481,26 @@ const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
               <button type="submit" className="vl-btn" disabled={loading}>
                 <div className="vl-btn-shimmer" />
                 {loading ? (
-                  <><span className="vl-spinner" />Signing in…</>
+                  <>
+                    <span className="vl-spinner" />
+                    Signing in…
+                  </>
                 ) : (
-                  "Sign in to CRM"
+                  'Sign in to CRM'
                 )}
               </button>
-
             </form>
 
-           <div className="vl-footer">
-              <span>Velvet</span> Premium Unisex Salon 
+            <div className="vl-footer">
+              <span>Velvet</span> Premium Unisex Salon
               <div className="vl-credit">
-  Powered by <span>Letnext Technologies</span>
-  <br />
-  Developer: Krishna Suthers Raj T G B
-</div>
+                Powered by <span>Letnext Technologies</span>
+                <br />
+                Developer: Krishna Suthers Raj T G B
+              </div>
             </div>
           </div>
         </div>
-
       </div>
     </>
   );

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom'; // ← ADD THIS LINE
 import * as XLSX from 'xlsx';
+import { useAuth } from '../../context/AuthContext';
 import {
   SERVICE_INVENTORY_MAP,
   SERVICES_CAT,
@@ -170,7 +171,10 @@ const token = (): string => {
 };
 const hdr = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` });
 const fmtCur = (n: number) => `₹${n.toLocaleString('en-IN')}`;
-const todayStr = new Date().toISOString().slice(0, 10);
+const todayStr = (() => {
+  const d = new Date();
+  return `${String(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
 
 // Returns true if the given "YYYY-MM-DD" date's month+day matches today —
 // used to flag birthdays/anniversaries regardless of birth year.
@@ -284,6 +288,7 @@ const Ic = ({ n, s = 16 }: { n: string; s?: number }) => {
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 export default function BillingPage() {
+  const { isAdmin } = useAuth();
   const [phone, setPhone] = useState('');
   const [searchParams] = useSearchParams(); // ← ADD
   const appointmentId = searchParams.get('appointmentId'); // ← ADD
@@ -374,11 +379,7 @@ export default function BillingPage() {
   const couponDisc = appliedCoupon?.discountAmount ?? 0;
   const afterCoupon = Math.max(0, afterManual - couponDisc);
   const maxLoyalty = customer
-    ? Math.min(
-        Math.floor(customer.loyaltyPoints / 10) * 10,
-        Math.floor(afterCoupon * 0.2),
-        afterCoupon,
-      )
+    ? Math.min(Math.floor(customer.loyaltyPoints), Math.floor(afterCoupon * 0.2), afterCoupon)
     : 0;
   const loyaltyDisc = redeemLoyalty ? Math.min(Number(loyaltyInput) || 0, maxLoyalty) : 0;
   // ← ADD THIS BLOCK: sum the reward value of every toggled-on referral, applied as a discount on this bill
@@ -957,6 +958,26 @@ export default function BillingPage() {
     setNotes(bill.notes);
     setApptDate(bill.date ?? null);
     setShowHistory(false);
+  };
+
+  const deleteBill = async (b: SavedBill) => {
+    if (!window.confirm(`Delete bill #${b.billNumber}? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${API}/bills/${b._id}`, { method: 'DELETE', headers: hdr() });
+      if (!res.ok) throw new Error();
+      if (editingBillId === b._id) {
+        setEditingBillId(null);
+        setItems([]);
+        setPhone('');
+      }
+      if (lastBill?._id === b._id) {
+        setShowInvoice(false);
+        setLastBill(null);
+      }
+      void fetchRecent();
+    } catch {
+      setApiError('Failed to delete bill.');
+    }
   };
 
   const StockBadge = ({ name }: { name: string }) => {
@@ -1958,9 +1979,9 @@ export default function BillingPage() {
                         <input
                           className="bl-loy-inp"
                           type="number"
-                          min={10}
+                          min={1}
                           max={maxLoyalty}
-                          step={10}
+                          step={1}
                           placeholder="pts"
                           value={loyaltyInput === 0 ? '' : loyaltyInput}
                           onChange={(e) => {
@@ -2312,6 +2333,7 @@ export default function BillingPage() {
                           <div className="bl-hist-name">{b.customer?.name ?? 'Walk-in'}</div>
                           <div className="bl-hist-meta">
                             #{b.billNumber} · {new Date(b.createdAt).toLocaleDateString('en-IN')}
+                            {b.status === 'pending' && ' · PENDING'}
                           </div>
                         </div>
                         <span className="bl-hist-amt">{fmtCur(b.total)}</span>
@@ -2340,6 +2362,18 @@ export default function BillingPage() {
                             <Ic n="print" s={12} />
                           )}
                         </button>
+                        {isAdmin && (
+                          <button
+                            className="bl-rm-btn"
+                            title="Delete bill"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deleteBill(b);
+                            }}
+                          >
+                            <Ic n="trash" s={12} />
+                          </button>
+                        )}
                         <div
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
