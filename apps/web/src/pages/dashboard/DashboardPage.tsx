@@ -78,6 +78,12 @@ interface CustomerLite {
   anniversary?: string;
 }
 
+interface ExpenseLite {
+  _id: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+}
+
 type AttendanceStatus = 'present' | 'absent' | 'half-day' | 'late' | 'holiday';
 interface AttendanceRecord {
   staffId: string;
@@ -352,6 +358,7 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [customers, setCustomers] = useState<CustomerLite[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [apiError, setApiError] = useState('');
@@ -383,7 +390,7 @@ export default function DashboardPage() {
         const apptFrom = addDays(selectedDate, -7);
         const apptTo = selectedDate;
 
-        const [staffRes, billsRes, apptRes, custRes, attRes] = await Promise.all([
+        const [staffRes, billsRes, apptRes, custRes, attRes, expRes] = await Promise.all([
           fetch(`${API_BASE}/api/staff-roles`, { headers: authHeaders() }),
           fetch(`${API_BASE}/api/bills?limit=1000`, { headers: authHeaders() }),
           fetch(`${API_BASE}/api/appointments?from=${apptFrom}&to=${apptTo}`, {
@@ -393,6 +400,12 @@ export default function DashboardPage() {
           fetch(`${API_BASE}/api/attendance?from=${selectedDate}&to=${selectedDate}`, {
             headers: authHeaders(),
           }),
+          fetch(
+            `${API_BASE}/api/daily-expenses?from=${addDays(selectedDate, -1)}&to=${selectedDate}`,
+            {
+              headers: authHeaders(),
+            },
+          ),
         ]);
 
         const staffData = staffRes.ok
@@ -427,6 +440,8 @@ export default function DashboardPage() {
         setAppointments(apptData);
         setCustomers(custData);
         setAttendance(attData);
+        const expData = expRes.ok ? ((await expRes.json().catch(() => [])) as ExpenseLite[]) : [];
+        setExpenses(expData);
         setLastUpdated(new Date());
       } catch (e: unknown) {
         setApiError(e instanceof Error ? e.message : 'Failed to load dashboard data.');
@@ -484,6 +499,17 @@ export default function DashboardPage() {
       avgBillYesterday > 0
         ? ((avgBillToday - avgBillYesterday) / avgBillYesterday) * 100
         : avgBillToday > 0
+          ? 100
+          : 0;
+
+    const expenseTotalOn = (d: string) =>
+      expenses.filter((e) => e.date === d).reduce((s, e) => s + e.amount, 0);
+    const expenseToday = expenseTotalOn(selectedDate);
+    const expenseYesterday = expenseTotalOn(yesterdayStr);
+    const expenseChangePct =
+      expenseYesterday > 0
+        ? ((expenseToday - expenseYesterday) / expenseYesterday) * 100
+        : expenseToday > 0
           ? 100
           : 0;
 
@@ -571,12 +597,14 @@ export default function DashboardPage() {
       newCustChange,
       avgBillToday,
       avgBillChangePct,
+      expenseToday,
+      expenseChangePct,
       weekly,
       monthly,
       serviceMix,
       topStaff,
     };
-  }, [bills, appointments, customers, staff, selectedDate]);
+  }, [bills, appointments, customers, staff, expenses, selectedDate]);
 
   // ── Attendance summary for selected date ─────────────────────────────────
   const attendanceSummary = useMemo(() => {
@@ -769,6 +797,15 @@ export default function DashboardPage() {
         value: loading ? '…' : fmtCur(derived.avgBillToday),
         change: fmtPct(derived.avgBillChangePct),
         up: derived.avgBillChangePct >= 0,
+      },
+      {
+        label: "Today's Expenses",
+        icon: 'tag',
+        roles: ['admin', 'receptionist'],
+        value: loading ? '…' : fmtCur(derived.expenseToday),
+        change: fmtPct(derived.expenseChangePct),
+        up: derived.expenseChangePct >= 0,
+        invert: true, // higher spending shows red, lower shows green
       },
     ],
     [loading, derived],
@@ -1298,7 +1335,9 @@ export default function DashboardPage() {
                       </div>
                       <span
                         className={`flex items-center gap-[3px] rounded-full px-2 py-[3px] text-xs font-medium ${
-                          k.up ? 'bg-[#eaf3de] text-[#3b6d11]' : 'bg-[#fcebeb] text-[#a32d2d]'
+                          (k.invert ? !k.up : k.up)
+                            ? 'bg-[#eaf3de] text-[#3b6d11]'
+                            : 'bg-[#fcebeb] text-[#a32d2d]'
                         }`}
                       >
                         <Icon name={k.up ? 'up' : 'down'} size={10} />

@@ -7,17 +7,18 @@
 
 export interface CustomerLoginDto {
   phone?: string;
-  dob?: string; // YYYY-MM-DD  — used as the "password"
+  password?: string;
 }
 
 export interface CustomerSignupDto {
   name?: string;
   phone?: string;
   email?: string;
-  dob?: string;          // YYYY-MM-DD
-  anniversary?: string;  // YYYY-MM-DD — optional, e.g. wedding anniversary
+  password?: string;
+  dob?: string; // YYYY-MM-DD
+  anniversary?: string; // YYYY-MM-DD — optional, e.g. wedding anniversary
   gender?: 'male' | 'female' | 'other';
-  referredBy?: string;   // referral code string
+  referredBy?: string; // referral code string
 }
 
 // ─── Public appointment booking (contact form + portal) ───────────────────────
@@ -27,7 +28,7 @@ export interface PublicBookingDto {
   phone?: string;
   service?: string;
   staff?: string;
-  date?: string;  // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD
   time?: string; // HH:MM — optional for contact-form enquiries
   duration?: number;
   notes?: string;

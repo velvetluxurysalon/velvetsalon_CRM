@@ -23,6 +23,7 @@ const EmployeeJoiningPage = lazy(() => import('./pages/staff/EmployeeJoiningPage
 const EmployeeRecordsPage = lazy(() => import('./pages/staff/EmployeeRecordsPage'));
 const StaffreviewPage = lazy(() => import('./pages/staff/Staffreview'));
 const ReceptionistPage = lazy(() => import('./pages/receptionattendance/ReceptionPage'));
+const DailyExpensesPage = lazy(() => import('./pages/expenses/DailyExpensesPage'));
 // ── Public Salon Website Pages ────────────────────────────────────────────────
 // ServicesPage/GalleryPage/ContactPage are self-contained (no props, internal
 // useNavigate()) — render them directly. HomePage still needs external
@@ -130,6 +131,7 @@ export default function App() {
               <Route path="/staff-reviews" element={<StaffreviewPage />} />
               <Route path="/receptionist" element={<ReceptionistPage />} />
               <Route path="/coupons" element={<CouponsPage />} />
+              <Route path="/dailyexpenses" element={<DailyExpensesPage />} />
               <Route path="/reports" element={<Placeholder page="Reports" />} />
             </Route>
 

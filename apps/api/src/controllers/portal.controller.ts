@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
-import mongoose               from 'mongoose';
-import { Customer }          from '../models/customer.model.js';
-import { Appointment }       from '../models/appointment.model.js';
-import { StaffRoleMember }   from '../models/staffRole.model.js';
-import { Bill }              from '../models/bill.model.js';
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+import { Customer } from '../models/customer.model.js';
+import { Appointment } from '../models/appointment.model.js';
+import { StaffRoleMember } from '../models/staffRole.model.js';
+import { Bill } from '../models/bill.model.js';
 import { signCustomerToken } from '../middleware/customerAuth.middleware.js';
 import type {
   CustomerLoginDto,
@@ -14,7 +15,7 @@ import type {
   RescheduleAppointmentDto,
 } from '../dtos/portal.dto.js';
 import { resolveServicePrice } from '../utils/servicePriceLookup.js';
-import { generateInvoicePdf }  from '../services/invoicePdf.service.js';   // ← added
+import { generateInvoicePdf } from '../services/invoicePdf.service.js'; // ← added
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Normalise a YYYY-MM-DD string for comparison (strips time if caller passes ISO). */
@@ -26,20 +27,18 @@ const PUBLIC_SELECT =
   'membershipTier membershipExpiry visitCount totalSpent lastVisit ' +
   'joinDate tags notes referrals';
 
-
-
 // ─── POST /api/portal/login ───────────────────────────────────────────────────
 export const portalLogin = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { phone, dob } = req.body as CustomerLoginDto;
+    const { phone, password } = req.body as CustomerLoginDto;
 
-    if (!phone?.trim() || !dob?.trim()) {
-      res.status(400).json({ message: 'phone and dob are required.' });
+    if (!phone?.trim() || !password) {
+      res.status(400).json({ message: 'phone and password are required.' });
       return;
     }
 
     const customer = await Customer.findOne({ phone: phone.trim() })
-      .select(PUBLIC_SELECT + ' dob')
+      .select(PUBLIC_SELECT + ' +passwordHash')
       .lean();
 
     if (!customer) {
@@ -49,19 +48,23 @@ export const portalLogin = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const storedDob = customer.dob
-      ? new Date(customer.dob).toISOString().slice(0, 10)
-      : null;
+    if (!customer.passwordHash) {
+      res.status(401).json({
+        message: 'No password set for this account yet. Please contact the salon.',
+      });
+      return;
+    }
 
-    if (!storedDob || storedDob !== normDate(dob)) {
-      res.status(401).json({ message: 'Incorrect date of birth. Please try again.' });
+    const passwordOk = await bcrypt.compare(password, customer.passwordHash);
+    if (!passwordOk) {
+      res.status(401).json({ message: 'Incorrect password. Please try again.' });
       return;
     }
 
     const token = signCustomerToken(String(customer._id), customer.phone);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { dob: _dob, ...profile } = customer;
+    const { dob: _dob, passwordHash: _ph, ...profile } = customer;
     res.status(200).json({ token, customer: profile });
   } catch (err) {
     res.status(500).json({ message: 'Login failed.', error: (err as Error).message });
@@ -73,8 +76,13 @@ export const portalSignup = async (req: Request, res: Response): Promise<void> =
   try {
     const body = req.body as CustomerSignupDto;
 
-    if (!body.name?.trim() || !body.phone?.trim()) {
-      res.status(400).json({ message: 'name and phone are required.' });
+    if (!body.name?.trim() || !body.phone?.trim() || !body.password) {
+      res.status(400).json({ message: 'name, phone and password are required.' });
+      return;
+    }
+
+    if (body.password.length < 6) {
+      res.status(400).json({ message: 'Password must be at least 6 characters.' });
       return;
     }
 
@@ -86,39 +94,42 @@ export const portalSignup = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-     const gender      = (body.gender?.toLowerCase() ?? 'other') as 'male' | 'female' | 'other';
+    const gender = (body.gender?.toLowerCase() ?? 'other') as 'male' | 'female' | 'other';
     const referredByCode = (body.referredBy ?? '').toUpperCase().trim();
 
     if (referredByCode) {
       const referrer = await Customer.findOne({ referralCode: referredByCode });
       if (referrer) {
         referrer.referrals.push({
-          referredName:  body.name.trim(),
+          referredName: body.name.trim(),
           referredPhone: body.phone.trim(),
-          date:          new Date().toISOString().slice(0, 10),
-          status:        'pending',
-          reward:        100,
+          date: new Date().toISOString().slice(0, 10),
+          status: 'pending',
+          reward: 100,
         } as never);
         await referrer.save();
       }
     }
 
+    const passwordHash = await bcrypt.hash(body.password, 10);
+
     const customer = await Customer.create({
-      name:             body.name.trim(),
-      phone:            body.phone.trim(),
-      email:            body.email?.trim() ?? '',
+      name: body.name.trim(),
+      phone: body.phone.trim(),
+      passwordHash,
+      email: body.email?.trim() ?? '',
       ...(body.dob ? { dob: new Date(body.dob) } : {}),
       ...(body.anniversary ? { anniversary: new Date(body.anniversary) } : {}),
       gender,
-      joinDate:         new Date().toISOString().slice(0, 10),
-      loyaltyPoints:    0,
-      walletBalance:    0,
-      membershipTier:   'none',
+      joinDate: new Date().toISOString().slice(0, 10),
+      loyaltyPoints: 0,
+      walletBalance: 0,
+      membershipTier: 'none',
       membershipExpiry: '',
       referredByCode,
-      tags:             [],
-      notes:            'Self-registered via customer portal',
-      isActive:         true,
+      tags: [],
+      notes: 'Self-registered via customer portal',
+      isActive: true,
     });
 
     const token = signCustomerToken(String(customer._id), customer.phone);
@@ -138,9 +149,7 @@ export const portalSignup = async (req: Request, res: Response): Promise<void> =
 // ─── GET /api/portal/me ───────────────────────────────────────────────────────
 export const portalMe = async (req: Request, res: Response): Promise<void> => {
   try {
-    const customer = await Customer.findById(req.customerId)
-      .select(PUBLIC_SELECT)
-      .lean();
+    const customer = await Customer.findById(req.customerId).select(PUBLIC_SELECT).lean();
 
     if (!customer) {
       res.status(404).json({ message: 'Account not found.' });
@@ -158,22 +167,27 @@ export const publicContactBooking = async (req: Request, res: Response): Promise
   try {
     const body = req.body as PublicBookingDto;
 
-    if (!body.customer?.trim() || !body.phone?.trim() || !body.service?.trim() || !body.date?.trim()) {
+    if (
+      !body.customer?.trim() ||
+      !body.phone?.trim() ||
+      !body.service?.trim() ||
+      !body.date?.trim()
+    ) {
       res.status(400).json({ message: 'customer, phone, service and date are required.' });
       return;
     }
 
     const appointment = await Appointment.create({
       customer: body.customer.trim(),
-      phone:    body.phone.trim(),
-      service:  body.service.trim(),
-      staff:    body.staff?.trim() ?? '',
-      date:     body.date,
-      time:     body.time ?? '',
+      phone: body.phone.trim(),
+      service: body.service.trim(),
+      staff: body.staff?.trim() ?? '',
+      date: body.date,
+      time: body.time ?? '',
       duration: body.duration ?? 30,
-      status:   'pending',
+      status: 'pending',
       isWalkIn: false,
-      notes:    body.notes ?? '',
+      notes: body.notes ?? '',
     });
 
     res.status(201).json({
@@ -229,22 +243,24 @@ export const portalBookAppointment = async (req: Request, res: Response): Promis
     const price = resolveServicePrice(body.service.trim(), undefined);
 
     const appointment = await Appointment.create({
-      customer:  customer.name,
-      phone:     customer.phone,
-      service:   body.service.trim(),
-      staff:     body.staff.trim(),
-      date:      body.date,
-      time:      body.time,
-      duration:  body.duration ?? 30,
+      customer: customer.name,
+      phone: customer.phone,
+      service: body.service.trim(),
+      staff: body.staff.trim(),
+      date: body.date,
+      time: body.time,
+      duration: body.duration ?? 30,
       price,
-      status:    'confirmed',
-      isWalkIn:  false,
-      notes:     body.notes ?? '',
+      status: 'confirmed',
+      isWalkIn: false,
+      notes: body.notes ?? '',
     });
 
     res.status(201).json(appointment);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to create appointment.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to create appointment.', error: (err as Error).message });
   }
 };
 
@@ -263,7 +279,9 @@ export const portalGetAppointments = async (req: Request, res: Response): Promis
 
     res.status(200).json(appointments);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch appointments.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to fetch appointments.', error: (err as Error).message });
   }
 };
 
@@ -315,10 +333,10 @@ export const portalRateAppointment = async (req: Request, res: Response): Promis
       return;
     }
 
-   if (appointment.status !== 'completed') {
-  res.status(400).json({ message: 'Only completed appointments can be rated.' });
-  return;
-}
+    if (appointment.status !== 'completed') {
+      res.status(400).json({ message: 'Only completed appointments can be rated.' });
+      return;
+    }
 
     if (appointment.staffRating != null) {
       res.status(409).json({ message: 'This appointment has already been rated.' });
@@ -348,7 +366,7 @@ export const portalRateAppointment = async (req: Request, res: Response): Promis
         (s) =>
           s.date.slice(0, 10) === visitDate &&
           s.service === appointment.service &&
-          s.rating == null
+          s.rating == null,
       );
 
       if (match) {
@@ -363,9 +381,9 @@ export const portalRateAppointment = async (req: Request, res: Response): Promis
         // reflected in the admin Customers → Services tab.
         console.warn(
           `[portalRateAppointment] No matching Customer.services[] entry found ` +
-          `for appointment ${String(appointment._id)} (phone ${appointment.phone}, ` +
-          `date ${visitDate}, service "${appointment.service}"). Rating was ` +
-          `saved on the appointment but not reflected on the admin Customers page.`
+            `for appointment ${String(appointment._id)} (phone ${appointment.phone}, ` +
+            `date ${visitDate}, service "${appointment.service}"). Rating was ` +
+            `saved on the appointment but not reflected on the admin Customers page.`,
         );
       }
     }
@@ -399,20 +417,18 @@ export const portalAddReferral = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const alreadyReferred = customer.referrals.some(
-      r => r.referredPhone === referredPhone
-    );
+    const alreadyReferred = customer.referrals.some((r) => r.referredPhone === referredPhone);
     if (alreadyReferred) {
       res.status(409).json({ message: 'You have already referred this number.' });
       return;
     }
 
     customer.referrals.push({
-      referredName:  body.referredName.trim(),
+      referredName: body.referredName.trim(),
       referredPhone,
-      date:          new Date().toISOString().slice(0, 10),
-      status:        'pending',
-      reward:        100,
+      date: new Date().toISOString().slice(0, 10),
+      status: 'pending',
+      reward: 100,
     } as never);
 
     await customer.save();
@@ -442,7 +458,7 @@ export const portalGetBills = async (req: Request, res: Response): Promise<void>
     const bills = await Bill.find({ phone: customer.phone })
       .select(
         'billNumber phone items subtotal membershipDiscount discountAmount ' +
-        'loyaltyRedeemed total paymentMethod status createdAt notes date staffRating'
+          'loyaltyRedeemed total paymentMethod status createdAt notes date staffRating',
       )
       .sort({ createdAt: -1 })
       .lean();
@@ -452,7 +468,6 @@ export const portalGetBills = async (req: Request, res: Response): Promise<void>
     res.status(500).json({ message: 'Failed to fetch bills.', error: (err as Error).message });
   }
 };
-
 
 // ─── GET /api/portal/bills/:id/invoice ───────────────────────────────────────
 /**
@@ -488,16 +503,18 @@ export const portalGetBillInvoicePdf = async (req: Request, res: Response): Prom
       return;
     }
 
-    const staffIds  = [...new Set(bill.items.map((i) => i.staffId).filter(Boolean))];
-    const validIds  = staffIds.filter((sid) => mongoose.Types.ObjectId.isValid(sid));
-    const staff     = validIds.length
-      ? await StaffRoleMember.find({ _id: { $in: validIds } }).select('_id name').lean()
+    const staffIds = [...new Set(bill.items.map((i) => i.staffId).filter(Boolean))];
+    const validIds = staffIds.filter((sid) => mongoose.Types.ObjectId.isValid(sid));
+    const staff = validIds.length
+      ? await StaffRoleMember.find({ _id: { $in: validIds } })
+          .select('_id name')
+          .lean()
       : [];
     const staffNameMap = new Map(staff.map((s) => [String(s._id), s.name]));
     const resolveStaffName = (staffId: string): string =>
-      bill.items.find((i) => i.staffId === staffId)?.staffName
-      || staffNameMap.get(staffId)
-      || staffId;
+      bill.items.find((i) => i.staffId === staffId)?.staffName ||
+      staffNameMap.get(staffId) ||
+      staffId;
 
     const pdfBuffer = await generateInvoicePdf(bill, resolveStaffName);
 
@@ -505,7 +522,9 @@ export const portalGetBillInvoicePdf = async (req: Request, res: Response): Prom
     res.setHeader('Content-Disposition', `attachment; filename="Invoice-${bill.billNumber}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to generate invoice PDF.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to generate invoice PDF.', error: (err as Error).message });
   }
 };
 
@@ -594,7 +613,7 @@ export const portalRateBill = async (req: Request, res: Response): Promise<void>
               s.date.slice(0, 10) === visitDate &&
               s.service === item.serviceName &&
               s.price === item.price &&
-              s.rating == null
+              s.rating == null,
           );
 
           if (match) {
@@ -611,8 +630,8 @@ export const portalRateBill = async (req: Request, res: Response): Promise<void>
           // still the source of truth either way.
           console.warn(
             `[portalRateBill] No matching Customer.services[] entry found ` +
-            `for bill ${bill.billNumber} (phone ${bill.phone}, date ${visitDate}). ` +
-            `Rating was saved on the bill but not reflected on the admin Customers page.`
+              `for bill ${bill.billNumber} (phone ${bill.phone}, date ${visitDate}). ` +
+              `Rating was saved on the bill but not reflected on the admin Customers page.`,
           );
         }
       }
@@ -671,7 +690,9 @@ export const portalRescheduleAppointment = async (req: Request, res: Response): 
 
     res.status(200).json(appointment);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to reschedule appointment.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to reschedule appointment.', error: (err as Error).message });
   }
 };
 
@@ -690,7 +711,7 @@ export const portalRescheduleAppointment = async (req: Request, res: Response): 
 export const portalGetBookedSlots = async (req: Request, res: Response): Promise<void> => {
   try {
     const staff = (req.query.staff as string | undefined)?.trim();
-    const date  = (req.query.date as string | undefined)?.trim();
+    const date = (req.query.date as string | undefined)?.trim();
 
     if (!staff || !date) {
       res.status(400).json({ message: 'staff and date query params are required.' });
@@ -709,7 +730,9 @@ export const portalGetBookedSlots = async (req: Request, res: Response): Promise
 
     res.status(200).json({ bookedTimes });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch booked slots.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to fetch booked slots.', error: (err as Error).message });
   }
 };
 
@@ -749,6 +772,8 @@ export const portalCancelAppointment = async (req: Request, res: Response): Prom
 
     res.status(200).json(appointment);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to cancel appointment.', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to cancel appointment.', error: (err as Error).message });
   }
 };

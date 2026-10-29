@@ -18,13 +18,10 @@ import serviceMapRouter from './routes/serviceMap.routes.js';
 import staffRoleRouter from './routes/staffRole.routes.js';
 import bannerRoutes from './routes/banner.routes.js';
 import membershipRoutes from './routes/membership.routes.js';
-import {
-  shiftAttendanceRouter,
-  shiftDefinitionRouter,
-} from './routes/shiftAttendance.routes.js';
+import { shiftAttendanceRouter, shiftDefinitionRouter } from './routes/shiftAttendance.routes.js';
 import couponRoutes from './routes/coupon.routes.js';
 import publicInvoiceRouter from './routes/publicInvoice.routes.js';
-
+import dailyExpenseRouter from './routes/dailyExpense.routes.js';
 
 dotenv.config();
 
@@ -51,7 +48,7 @@ app.use(
       }
     },
     credentials: true,
-  })
+  }),
 );
 
 app.use(express.json());
@@ -77,6 +74,8 @@ app.use('/api/shift-attendance', shiftAttendanceRouter);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/service-map', serviceMapRouter);
 app.use('/api/public', publicInvoiceRouter);
+app.use('/api/daily-expenses', dailyExpenseRouter);
+
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });

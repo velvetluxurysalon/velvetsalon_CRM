@@ -99,8 +99,6 @@ interface MyCoupon {
   expiryDate: string | null;
 }
 
-
-
 /** Stylist as returned by the public GET /api/portal/staff endpoint. */
 interface Stylist {
   id: string;
@@ -323,8 +321,8 @@ export default function ContactPage() {
   // login
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loginPhone, setLoginPhone] = useState('');
-  const [loginDob, setLoginDob] = useState('');
-  const [showDob, setShowDob] = useState(false);
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -336,6 +334,7 @@ export default function ContactPage() {
   const [signupAnniversary, setSignupAnniversary] = useState('');
   const [signupGender, setSignupGender] = useState<'female' | 'male' | 'other'>('female');
   const [signupRef, setSignupRef] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
   const [signupError, setSignupError] = useState('');
   const [signupLoading, setSignupLoading] = useState(false);
 
@@ -380,7 +379,7 @@ export default function ContactPage() {
   const [bookedTimes, setBookedTimes] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
 
-// invoice modal
+  // invoice modal
   const [invoiceBill, setInvoiceBill] = useState<Bill | null>(null);
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
 
@@ -505,14 +504,14 @@ export default function ContactPage() {
   // ── Login ──────────────────────────────────────────────────────────────────
   const handleLogin = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!loginPhone.trim() || !loginDob.trim()) return;
+    if (!loginPhone.trim() || !loginPassword) return;
     setLoginError('');
     setLoginLoading(true);
     try {
       const res = await fetch(`${PORTAL_API}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: loginPhone.trim(), dob: loginDob }),
+        body: JSON.stringify({ phone: loginPhone.trim(), password: loginPassword }),
       });
       if (!res.ok) {
         const data = (await res.json()) as { message?: string };
@@ -534,7 +533,11 @@ export default function ContactPage() {
   // ── Sign up ────────────────────────────────────────────────────────────────
   const handleSignup = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!signupName.trim() || !signupPhone.trim()) return;
+    if (!signupName.trim() || !signupPhone.trim() || !signupPassword) return;
+    if (signupPassword.length < 6) {
+      setSignupError('Password must be at least 6 characters.');
+      return;
+    }
     setSignupError('');
     setSignupLoading(true);
     try {
@@ -545,6 +548,7 @@ export default function ContactPage() {
           name: signupName.trim(),
           phone: signupPhone.trim(),
           email: signupEmail.trim(),
+          password: signupPassword,
           dob: signupDob,
           anniversary: signupAnniversary,
           gender: signupGender,
@@ -654,7 +658,7 @@ export default function ContactPage() {
     ),
   ].sort((a, b) => (a.sortDate < b.sortDate ? 1 : a.sortDate > b.sortDate ? -1 : 0));
 
- // NOTE: handleContactBook was removed — it wasn't wired to any form
+  // NOTE: handleContactBook was removed — it wasn't wired to any form
   // (no <form onSubmit={handleContactBook}> exists in the current JSX).
   // If you intend to add a contact-booking form later, restore this
   // function and connect it to that form's onSubmit.
@@ -834,14 +838,21 @@ export default function ContactPage() {
     }
   };
 
-// ── Share a bill (native share sheet, falls back to WhatsApp text share) ──
+  // ── Share a bill (native share sheet, falls back to WhatsApp text share) ──
   const shareInvoice = async (bill: Bill) => {
     const itemsText = bill.items
-      .map((it) => `${it.serviceName ?? it.name ?? it.service ?? 'Service'} - ${fmtCur(it.price ?? 0)}`)
+      .map(
+        (it) =>
+          `${it.serviceName ?? it.name ?? it.service ?? 'Service'} - ${fmtCur(it.price ?? 0)}`,
+      )
       .join('\n');
     const text = `Velvet Premium Unisex Salon\nInvoice #${bill.billNumber}\nDate: ${new Date(
       bill.date ?? bill.createdAt,
-    ).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}\n\n${itemsText}\n\nTotal: ${fmtCur(
+    ).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })}\n\n${itemsText}\n\nTotal: ${fmtCur(
       bill.total,
     )}\nPayment: ${bill.paymentMethod.toUpperCase()}\n\nThank you for visiting Velvet!`;
 
@@ -901,7 +912,7 @@ export default function ContactPage() {
     });
   };
 
-const upcomingAppt = useMemo(() => {
+  const upcomingAppt = useMemo(() => {
     const now = new Date();
     return history.find((a) => {
       if (a.status !== 'confirmed' && a.status !== 'pending') return false;
@@ -913,7 +924,7 @@ const upcomingAppt = useMemo(() => {
     });
   }, [history]);
 
-   const tierCfg = TIER_CFG[session?.membershipTier ?? 'none'];
+  const tierCfg = TIER_CFG[session?.membershipTier ?? 'none'];
   const discount = tierCfg.discount;
   const selectedSvc = SERVICES_CAT.find((s) => s.name === bkService);
   const finalPrice = selectedSvc ? Math.round(selectedSvc.price * (1 - discount / 100)) : 0;
@@ -933,9 +944,9 @@ const upcomingAppt = useMemo(() => {
   // ════════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-[#faf8f4] font-['Jost'] pt-[84px]">
-  {/* ── TOP NAV ─────────────────────────────────────────────────────────── */}
-  <header className="relative z-20 pt-2">
-       <div className="max-w-5xl mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 sm:gap-4">
+      {/* ── TOP NAV ─────────────────────────────────────────────────────────── */}
+      <header className="relative z-20 pt-2">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 sm:gap-4">
           <div className="flex gap-1 bg-[#f5f0e8] rounded-lg p-1">
             {(
               [
@@ -996,7 +1007,7 @@ const upcomingAppt = useMemo(() => {
               Book an Appointment
             </h1>
             <div className="w-12 h-px bg-[#d4af37]" />
-           <p className="text-[15px] font-light text-[#8a7560] max-w-[520px] leading-[1.7]">
+            <p className="text-[15px] font-light text-[#8a7560] max-w-[520px] leading-[1.7]">
               Walk-ins welcome. For guaranteed slots, book ahead and we'll confirm within 2 hours.
             </p>
             <div className="flex gap-2.5 mt-2">
@@ -1027,10 +1038,8 @@ const upcomingAppt = useMemo(() => {
             </div>
           </div>
 
-                              <div className="max-w-4xl mx-auto">
-
-
-             {/* ── INFO GRID (left/right instead of one straight column) ───── */}
+          <div className="max-w-4xl mx-auto">
+            {/* ── INFO GRID (left/right instead of one straight column) ───── */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start">
               <div className="bg-white border border-[#ede5d6] rounded-2xl p-[22px]">
                 <p className="text-[10px] font-medium tracking-[0.18em] uppercase text-[#8a7560] mb-3">
@@ -1169,8 +1178,7 @@ const upcomingAppt = useMemo(() => {
                     Call Us
                   </button>
                 </div>
-                
-                  
+
                 <div className="mt-3 pt-3 border-t border-[#f5f0e8]">
                   <button
                     onClick={() => {
@@ -1183,8 +1191,6 @@ const upcomingAppt = useMemo(() => {
                 </div>
               </div>
             </div>
-
-           
           </div>
         </div>
       )}
@@ -1248,14 +1254,14 @@ const upcomingAppt = useMemo(() => {
                     >
                       <option value="">Select time</option>
                       {getAvailableSlots(resDate).map((t) => {
-  const isBooked = bookedTimes.includes(t) && t !== rescheduleTarget.time;
-  return (
-    <option key={t} value={t} disabled={isBooked}>
-      {fmtTime12(t)}
-      {isBooked ? ' (booked)' : ''}
-    </option>
-  );
-})}
+                        const isBooked = bookedTimes.includes(t) && t !== rescheduleTarget.time;
+                        return (
+                          <option key={t} value={t} disabled={isBooked}>
+                            {fmtTime12(t)}
+                            {isBooked ? ' (booked)' : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                     {slotsLoading && (
                       <p className="text-[10px] text-[#8a7560] mt-1">Checking availability…</p>
@@ -1296,7 +1302,7 @@ const upcomingAppt = useMemo(() => {
                 setInvoiceBill(null);
               }}
             >
-                            <div
+              <div
                 className="bg-white rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto [&::-webkit-scrollbar]:hidden"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
                 onClick={(e) => {
@@ -1351,7 +1357,7 @@ const upcomingAppt = useMemo(() => {
                     </div>
                   </div>
 
-                                    <div className="mb-5 px-4 py-3.5 bg-[#faf8f4] rounded-lg border border-[#f0e8d8]">
+                  <div className="mb-5 px-4 py-3.5 bg-[#faf8f4] rounded-lg border border-[#f0e8d8]">
                     <div className="text-[9px] font-medium tracking-[0.18em] uppercase text-[#8a7560] mb-1.5">
                       Bill To
                     </div>
@@ -1388,24 +1394,24 @@ const upcomingAppt = useMemo(() => {
                       </tr>
                     </thead>
                     <tbody>
-  {invoiceBill.items.map((it, i) => (
-    <tr key={i} className="border-b border-[#f5f0e8]">
-      <td className="py-2.5 text-[13px] text-[#1a1208]">
-        {it.serviceName ?? it.name ?? it.service ?? 'Service'}
-        {/* Staff name — shown here on narrow screens where the dedicated column is hidden */}
-        <div className="xs:hidden text-[11px] text-[#8a7560] mt-0.5">
-          {staffNameForItem(it)}
-        </div>
-      </td>
-      <td className="py-2.5 text-[13px] text-[#6b5740] hidden xs:table-cell">
-        {staffNameForItem(it)}
-      </td>
-      <td className="py-2.5 text-[13px] text-[#1a1208] text-right">
-        {fmtCur(it.price ?? 0)}
-      </td>
-    </tr>
-  ))}
-</tbody>
+                      {invoiceBill.items.map((it, i) => (
+                        <tr key={i} className="border-b border-[#f5f0e8]">
+                          <td className="py-2.5 text-[13px] text-[#1a1208]">
+                            {it.serviceName ?? it.name ?? it.service ?? 'Service'}
+                            {/* Staff name — shown here on narrow screens where the dedicated column is hidden */}
+                            <div className="xs:hidden text-[11px] text-[#8a7560] mt-0.5">
+                              {staffNameForItem(it)}
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-[13px] text-[#6b5740] hidden xs:table-cell">
+                            {staffNameForItem(it)}
+                          </td>
+                          <td className="py-2.5 text-[13px] text-[#1a1208] text-right">
+                            {fmtCur(it.price ?? 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
 
                   <div className="border-t border-[#e0d5c0] pt-3 space-y-1.5">
@@ -1425,7 +1431,7 @@ const upcomingAppt = useMemo(() => {
                         <span>−{fmtCur(invoiceBill.discountAmount ?? 0)}</span>
                       </div>
                     )}
-                                       {(invoiceBill.loyaltyRedeemed ?? 0) > 0 && (
+                    {(invoiceBill.loyaltyRedeemed ?? 0) > 0 && (
                       <div className="flex justify-between text-[13px] text-[#2e7d32]">
                         <span>Loyalty Redeemed</span>
                         <span>−{fmtCur(invoiceBill.loyaltyRedeemed ?? 0)}</span>
@@ -1449,7 +1455,7 @@ const upcomingAppt = useMemo(() => {
                     </div>
                   </div>
 
-                                   <div className="inline-flex items-center gap-1.5 mt-4 px-3.5 py-1.5 bg-[#eaf3de] rounded-full text-[11px] font-medium text-[#3b6d11] tracking-[0.08em] uppercase">
+                  <div className="inline-flex items-center gap-1.5 mt-4 px-3.5 py-1.5 bg-[#eaf3de] rounded-full text-[11px] font-medium text-[#3b6d11] tracking-[0.08em] uppercase">
                     <svg
                       className="w-3 h-3"
                       viewBox="0 0 24 24"
@@ -1482,7 +1488,7 @@ const upcomingAppt = useMemo(() => {
                     </div>
                   )}
 
-                 {invoiceBill.notes && (
+                  {invoiceBill.notes && (
                     <div className="mt-3 text-[12px] text-[#6b5740] italic">
                       Note: {invoiceBill.notes}
                     </div>
@@ -1609,24 +1615,25 @@ const upcomingAppt = useMemo(() => {
                     />
                   </div>
                   <div className="relative">
-                    <label className={labelCls}>Date of Birth</label>
+                    <label className={labelCls}>Password</label>
                     <input
-                      type={showDob ? 'text' : 'password'}
-                      placeholder="YYYY-MM-DD"
-                      value={loginDob}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      value={loginPassword}
                       onChange={(e) => {
-                        setLoginDob(e.target.value);
+                        setLoginPassword(e.target.value);
                       }}
                       className={`${inputCls} pr-12`}
                     />
                     <button
                       type="button"
                       onClick={() => {
-                        setShowDob((v) => !v);
+                        setShowPassword((v) => !v);
                       }}
                       className="absolute right-3 top-[38px] text-[#8a7560] hover:text-[#b8860b] transition-colors"
                     >
-                      {showDob ? (
+                      {showPassword ? (
                         <svg
                           className="w-4 h-4"
                           viewBox="0 0 24 24"
@@ -1669,7 +1676,7 @@ const upcomingAppt = useMemo(() => {
                   )}
                   <button
                     type="submit"
-                    disabled={loginLoading || !loginPhone.trim() || !loginDob.trim()}
+                    disabled={loginLoading || !loginPhone.trim() || !loginPassword}
                     className="w-full h-12 bg-[#1a1208] text-[#d4af37] rounded-lg text-xs font-medium tracking-[0.2em] uppercase transition-all hover:bg-[#2d2010] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {loginLoading ? (
@@ -1746,9 +1753,7 @@ const upcomingAppt = useMemo(() => {
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className={labelCls}>
-                        Date of Birth <span className="text-[#b8860b]">(used to sign in)</span>
-                      </label>
+                      <label className={labelCls}>Date of Birth</label>
                       <input
                         type="date"
                         value={signupDob}
@@ -1793,6 +1798,21 @@ const upcomingAppt = useMemo(() => {
                     </select>
                   </div>
                   <div>
+                    <label className={labelCls}>Password *</label>
+                    <input
+                      type="password"
+                      placeholder="At least 6 characters"
+                      autoComplete="new-password"
+                      value={signupPassword}
+                      onChange={(e) => {
+                        setSignupPassword(e.target.value);
+                      }}
+                      className={inputCls}
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                  <div>
                     <label className={labelCls}>Referral Code (optional)</label>
                     <input
                       type="text"
@@ -1827,7 +1847,9 @@ const upcomingAppt = useMemo(() => {
                   )}
                   <button
                     type="submit"
-                    disabled={signupLoading || !signupName.trim() || !signupPhone.trim()}
+                    disabled={
+                      signupLoading || !signupName.trim() || !signupPhone.trim() || !signupPassword
+                    }
                     className="w-full h-12 bg-[#1a1208] text-[#d4af37] rounded-lg text-xs font-medium tracking-[0.2em] uppercase transition-all hover:bg-[#2d2010] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {signupLoading ? (
@@ -1878,8 +1900,8 @@ const upcomingAppt = useMemo(() => {
                   <div className="flex-1">
                     <p className="text-sm font-medium text-amber-800">Upcoming appointment</p>
                     <p className="text-xs text-amber-700 mt-0.5">
-                      Your {upcomingAppt.service} appointment is at {fmtTime12(upcomingAppt.time)} today.
-                      Please arrive a few minutes early.
+                      Your {upcomingAppt.service} appointment is at {fmtTime12(upcomingAppt.time)}{' '}
+                      today. Please arrive a few minutes early.
                     </p>
                   </div>
                   <button
@@ -1889,7 +1911,13 @@ const upcomingAppt = useMemo(() => {
                     className="text-amber-600 hover:text-amber-800 flex-shrink-0"
                     aria-label="Dismiss"
                   >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                   </button>
@@ -2133,11 +2161,11 @@ const upcomingAppt = useMemo(() => {
                         >
                           <option value="">Select time</option>
                           {getAvailableSlots(bkDate).map((t) => (
-  <option key={t} value={t} disabled={bookedTimes.includes(t)}>
-    {fmtTime12(t)}
-    {bookedTimes.includes(t) ? ' (booked)' : ''}
-  </option>
-))}
+                            <option key={t} value={t} disabled={bookedTimes.includes(t)}>
+                              {fmtTime12(t)}
+                              {bookedTimes.includes(t) ? ' (booked)' : ''}
+                            </option>
+                          ))}
                         </select>
                         {slotsLoading && (
                           <p className="text-[10px] text-[#8a7560] mt-1">Checking availability…</p>

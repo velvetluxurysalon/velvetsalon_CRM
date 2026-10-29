@@ -43,6 +43,7 @@ interface CustomerInfo {
   dob?: string;
   anniversary?: string;
   referrals?: Referral[]; // ← ADD THIS LINE
+  referralCode?: string;
 }
 interface SavedBill {
   _id: string;
@@ -354,6 +355,40 @@ export default function BillingPage() {
   // ← ADD THIS LINE: tracks which of the customer's pending referrals the
   // staff has toggled "on" to be redeemed/converted on this bill.
   const [selectedReferralIds, setSelectedReferralIds] = useState<string[]>([]);
+
+  // ── Free-service reward: past visit count per service for the current phone ──
+  const FREE_AFTER = 5; // 5 paid visits → the 6th is free, then the cycle restarts
+  const [pastServiceCounts, setPastServiceCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (phone.length < 10) {
+      setPastServiceCounts({});
+      return;
+    }
+    const state = { cancelled: false };
+    void (async () => {
+      try {
+        const res = await fetch(`${API}/bills`, { headers: hdr() });
+        if (!res.ok) return;
+        const bills = (await res.json()) as SavedBill[];
+        const counts: Record<string, number> = {};
+        for (const b of bills) {
+          // only paid bills of this client; skip the bill currently being edited
+          if (b.phone !== phone || b.status !== 'paid' || b._id === editingBillId) continue;
+          for (const it of b.items) {
+            counts[it.serviceName] = (counts[it.serviceName] ?? 0) + 1;
+          }
+        }
+        if (!state.cancelled) setPastServiceCounts(counts);
+      } catch {
+        /* advisory — no reward if history can't load */
+      }
+    })();
+    return () => {
+      state.cancelled = true;
+    };
+  }, [phone, editingBillId]);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const [autoCoupon, setAutoCoupon] = useState<{
     code: string;
     discountValue: number;
@@ -370,12 +405,27 @@ export default function BillingPage() {
   const membershipPct = customer ? MEMBERSHIP_DISCOUNT[customer.membershipTier] : 0;
   const membershipDisc = Math.round((subtotal * membershipPct) / 100);
   const afterMembership = subtotal - membershipDisc;
+
+  // Which bill items are free: every (FREE_AFTER + 1)th visit of the same service
+  const freeItemKeys = useMemo(() => {
+    const running: Record<string, number> = { ...pastServiceCounts };
+    const keys = new Set<string>();
+    for (const it of items) {
+      const n = running[it.serviceName] ?? 0;
+      if (n % (FREE_AFTER + 1) === FREE_AFTER) keys.add(it._key);
+      running[it.serviceName] = n + 1;
+    }
+    return keys;
+  }, [items, pastServiceCounts]);
+  const freeBase = items.filter((i) => freeItemKeys.has(i._key)).reduce((s, i) => s + i.price, 0);
+  // net of membership % so the free service is not discounted twice
+  const freeServiceDisc = Math.round((freeBase * (100 - membershipPct)) / 100);
+  const afterFree = afterMembership - freeServiceDisc;
+
   const dv = Number(discountValue) || 0;
   const manualDisc =
-    discountType === 'percent'
-      ? Math.round((afterMembership * dv) / 100)
-      : Math.min(dv, afterMembership);
-  const afterManual = afterMembership - manualDisc;
+    discountType === 'percent' ? Math.round((afterFree * dv) / 100) : Math.min(dv, afterFree);
+  const afterManual = afterFree - manualDisc;
   const couponDisc = appliedCoupon?.discountAmount ?? 0;
   const afterCoupon = Math.max(0, afterManual - couponDisc);
   const maxLoyalty = customer
@@ -387,7 +437,8 @@ export default function BillingPage() {
     .filter((r) => selectedReferralIds.includes(r._id))
     .reduce((sum, r) => sum + r.reward, 0);
   const total = Math.max(0, afterCoupon - loyaltyDisc - referralDisc); // ← CHANGED: subtract referralDisc, clamp at 0
-  const totalSavings = membershipDisc + manualDisc + couponDisc + loyaltyDisc + referralDisc; // ← CHANGED: include referralDisc
+  const totalSavings =
+    membershipDisc + freeServiceDisc + manualDisc + couponDisc + loyaltyDisc + referralDisc;
 
   const aggregatedConsumables = getAggregatedConsumables(items);
 
@@ -732,7 +783,7 @@ export default function BillingPage() {
       membershipDiscount: membershipDisc,
       discountType,
       discountValue: dv,
-      discountAmount: manualDisc,
+      discountAmount: manualDisc + freeServiceDisc,
       couponCode: appliedCoupon?.code,
       loyaltyRedeemed: loyaltyDisc,
       total,
@@ -767,6 +818,7 @@ export default function BillingPage() {
       }
 
       setAutoCoupon(data.auto_coupon ?? null);
+      setReferralCode(customer?.referralCode ?? null);
 
       setLastBill(bill);
       setInvoiceOccasion(
@@ -906,6 +958,9 @@ export default function BillingPage() {
     const couponLine = autoCoupon
       ? `\n${E(0x1f381)} You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
       : '';
+    const referralLine = referralCode
+      ? `\n${E(0x1f91d)} Refer a friend to Velvet with your referral code *${referralCode}* and enjoy rewards!\n`
+      : '';
     const msg =
       `*Velvet Premium Unisex Salon*\n` +
       `Invoice #${b.billNumber}\n` +
@@ -916,6 +971,7 @@ export default function BillingPage() {
       `*Total: ${fmtCur(b.total)}*\n` +
       `Payment: ${b.paymentMethod.toUpperCase()}\n` +
       couponLine +
+      referralLine +
       `\nThank you for visiting Velvet! We hope you loved your experience.\n\n` +
       `We'd love your feedback: ${FEEDBACK_URL}\n` +
       `Follow us on Instagram: ${instagramUrl}\n\n` +
@@ -1615,6 +1671,18 @@ export default function BillingPage() {
                             <td>
                               <div className="bl-svc-name">{item.serviceName}</div>
                               <div className="bl-svc-dur">{item.duration} min</div>
+                              {freeItemKeys.has(item._key) && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: '#15803d',
+                                    fontWeight: 500,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  🎁 FREE — loyalty reward ({FREE_AFTER} visits completed)
+                                </div>
+                              )}
                               {consumables.length > 0 && (
                                 <div className="bl-consumable-tags">
                                   {consumables.map((c) => {
@@ -2198,6 +2266,12 @@ export default function BillingPage() {
                       <span>−{fmtCur(loyaltyDisc)}</span>
                     </div>
                   )}
+                  {freeServiceDisc > 0 && (
+                    <div className="bl-sum-line bl-saving-line">
+                      <span>Free Service Reward</span>
+                      <span>−{fmtCur(freeServiceDisc)}</span>
+                    </div>
+                  )}
                   {/* ← ADD THIS BLOCK: shows the referral reward as a line-item discount */}
                   {referralDisc > 0 && (
                     <div className="bl-sum-line bl-saving-line">
@@ -2435,6 +2509,7 @@ export default function BillingPage() {
             setShowInvoice(false);
             setReferralReward(null);
             setAutoCoupon(null);
+            setReferralCode(null);
             setInvoiceOccasion(null);
           }}
         >
@@ -2455,6 +2530,7 @@ export default function BillingPage() {
                   setShowInvoice(false);
                   setReferralReward(null);
                   setAutoCoupon(null);
+                  setReferralCode(null);
                   setInvoiceOccasion(null);
                 }}
               >
