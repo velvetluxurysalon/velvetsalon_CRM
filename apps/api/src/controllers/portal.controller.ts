@@ -86,11 +86,32 @@ export const portalSignup = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const existing = await Customer.findOne({ phone: body.phone.trim() });
-    if (existing) {
+    const existing = await Customer.findOne({ phone: body.phone.trim() }).select('+passwordHash');
+
+    // Already has a portal login → must sign in
+    if (existing?.passwordHash) {
       res.status(409).json({
         message: 'This mobile number is already registered. Please sign in.',
       });
+      return;
+    }
+
+    // Created earlier by staff billing (no password yet) → customer claims it.
+    // Existing visits, points, bills and spend stay untouched.
+    if (existing) {
+      existing.name = body.name.trim();
+      existing.passwordHash = await bcrypt.hash(body.password, 10);
+      if (body.email?.trim()) existing.email = body.email.trim();
+      if (body.dob) existing.dob = new Date(body.dob);
+      if (body.anniversary) existing.anniversary = new Date(body.anniversary);
+      if (body.gender) {
+        existing.gender = body.gender.toLowerCase() as 'male' | 'female' | 'other';
+      }
+      await existing.save();
+
+      const claimedToken = signCustomerToken(String(existing._id), existing.phone);
+      const claimedProfile = await Customer.findById(existing._id).select(PUBLIC_SELECT).lean();
+      res.status(201).json({ token: claimedToken, customer: claimedProfile });
       return;
     }
 
