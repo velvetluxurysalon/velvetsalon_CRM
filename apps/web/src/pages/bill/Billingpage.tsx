@@ -114,7 +114,7 @@ const MEMBERSHIP_CFG: Record<MembershipTier, { label: string; color: string; bg:
 const UPI_ID = 'paytm.s209biv@pty';
 const UPI_PAYEE_NAME = 'Velvet Premium Unisex Salon';
 
-const REFERRAL_PCT = 20; // referral discount % for both referrer and referred friend
+const REFERRAL_PCT = 10; // referral discount % for both referrer and referred friend
 
 // Replace with your real Google review / feedback form link
 const FEEDBACK_URL = 'https://g.page/r/CWB5ZgKh5KkEEBM/review';
