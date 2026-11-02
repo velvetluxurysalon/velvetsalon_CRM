@@ -305,10 +305,11 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
 
     // ← ADD THIS BLOCK: pulled separately since CreateBillDto may not yet
     // declare these fields — cast avoids touching the DTO file.
-    const { redeemedReferralIds, referralDiscount, customerDob } = req.body as {
+    const { redeemedReferralIds, referralDiscount, customerDob, referralCodeUsed } = req.body as {
       redeemedReferralIds?: string[];
       referralDiscount?: number;
       customerDob?: string;
+      referralCodeUsed?: string;
     };
 
     // ── Recompute coupon discount server-side ─────────────────────────────
@@ -610,9 +611,57 @@ export const createBill = async (req: Request, res: Response): Promise<void> => 
     let referralReferrerName: string | null = null;
 
     if (status === 'paid') {
-      const result = await processReferralReward(customer._id, phone.trim());
-      referralRewarded = result.rewarded;
-      referralReferrerName = result.referrerName ?? null;
+      // Referral code typed in at billing: any customer can use any code
+      if (referralCodeUsed?.trim()) {
+        try {
+          const referrer = await Customer.findOne({
+            referralCode: referralCodeUsed.trim().toUpperCase(),
+          });
+
+          // A customer can't use their own code
+          if (referrer && referrer._id.toString() !== customer._id.toString()) {
+            const customerPhone = phone.trim();
+            const alreadyCredited = referrer.referrals.some(
+              (r) => r.referredPhone === customerPhone && r.status === 'credited',
+            );
+
+            // Reward the referrer only once per referred customer
+            if (!alreadyCredited) {
+              const pending = referrer.referrals.find(
+                (r) => r.referredPhone === customerPhone && r.status === 'pending',
+              );
+              const reward = pending?.reward ?? 100;
+
+              if (pending) {
+                pending.status = 'credited';
+              } else {
+                referrer.referrals.push({
+                  referredName: customer.name,
+                  referredPhone: customerPhone,
+                  date: billDate,
+                  status: 'credited',
+                  reward,
+                } as never);
+              }
+
+              referrer.loyaltyPoints = (referrer.loyaltyPoints || 0) + reward;
+              await referrer.save();
+
+              referralRewarded = true;
+              referralReferrerName = referrer.name;
+            }
+          }
+        } catch (refErr) {
+          console.error('[bill] referralCodeUsed handling failed:', refErr);
+        }
+      }
+
+      // Existing first-bill auto reward, skipped if the code above already rewarded
+      if (!referralRewarded) {
+        const result = await processReferralReward(customer._id, phone.trim());
+        referralRewarded = result.rewarded;
+        referralReferrerName = result.referrerName ?? null;
+      }
     }
 
     // ← ADD THIS BLOCK: surface the manual toggle-based conversion in the
@@ -721,6 +770,7 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
     // ── Capture old totals BEFORE mutating, so we can reconcile customer stats ──
     const oldTotal = bill.total;
     const oldDate = bill.date;
+    const oldServiceNames = bill.items.map((i) => i.serviceName); // snapshot before edits are applied
 
     // ── Resolve staff names for any updated items, same as createBill ────────
     let itemsWithStaffNames:
@@ -807,24 +857,50 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
         // since this is an explicit edit to a known bill.
         const apptId = bill.appointment;
 
+        const newServiceNames = new Set(bill.items.map((i) => i.serviceName).filter(Boolean));
+
+        // 1) Remove service lines for services that were taken off this bill
+        for (const name of oldServiceNames) {
+          if (!name || newServiceNames.has(name)) continue;
+          const staleIdx = apptId
+            ? customer.services.findIndex(
+                (s) => s.appointmentId?.toString() === apptId.toString() && s.service === name,
+              )
+            : customer.services.findIndex(
+                (s) => s.date.slice(0, 10) === oldDate && s.service === name,
+              );
+          if (staleIdx !== -1) customer.services.splice(staleIdx, 1);
+        }
+
+        // 2) Update existing lines, and add lines for newly added services
+        const claimed = new Set<string>();
         for (const item of bill.items) {
           if (!item.serviceName) continue;
 
-          const match = apptId
-            ? customer.services.find(
-                (s) =>
-                  s.appointmentId?.toString() === apptId.toString() &&
-                  s.service === item.serviceName,
-              )
-            : customer.services.find(
-                (s) => s.date.slice(0, 10) === oldDate && s.service === item.serviceName,
-              );
+          const match = customer.services.find(
+            (s) =>
+              !claimed.has(s._id.toString()) &&
+              s.service === item.serviceName &&
+              (apptId
+                ? s.appointmentId?.toString() === apptId.toString()
+                : s.date.slice(0, 10) === oldDate),
+          );
 
           if (match) {
+            claimed.add(match._id.toString());
             match.price = item.price;
             match.staff = resolveStaffName(item.staffId);
             match.duration = item.duration;
             match.date = bill.date;
+          } else {
+            customer.services.push({
+              date: bill.date,
+              service: item.serviceName,
+              staff: resolveStaffName(item.staffId),
+              duration: item.duration,
+              price: item.price,
+              appointmentId: apptId ?? null,
+            } as never);
           }
         }
 
@@ -834,6 +910,7 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
 
         if (matchVisit) {
           matchVisit.date = bill.date;
+          matchVisit.services = bill.items.map((i) => i.serviceName); // ← keep visit services in sync
           matchVisit.total = bill.total;
           matchVisit.staff = staffNames;
           matchVisit.notes = bill.notes;

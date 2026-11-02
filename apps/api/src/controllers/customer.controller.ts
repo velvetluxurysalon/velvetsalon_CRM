@@ -20,8 +20,9 @@ export const getCustomers = async (req: Request, res: Response): Promise<void> =
 
     if (q) {
       filter.$or = [
-        { name:  { $regex: q, $options: 'i' } },
+        { name: { $regex: q, $options: 'i' } },
         { phone: { $regex: q, $options: 'i' } },
+        { referralCode: q.trim().toUpperCase() },
       ];
     }
 
@@ -65,17 +66,21 @@ export const createCustomer = async (req: Request, res: Response): Promise<void>
 
     // Normalize enum fields to lowercase before Mongoose validation
     if (body.gender !== undefined) {
-  body.gender = body.gender.toLowerCase() as 'male' | 'female' | 'other';
-}
+      body.gender = body.gender.toLowerCase() as 'male' | 'female' | 'other';
+    }
     if (body.membershipTier !== undefined) {
-  body.membershipTier = body.membershipTier.toLowerCase() as 'none' | 'silver' | 'gold' | 'platinum';
-}
+      body.membershipTier = body.membershipTier.toLowerCase() as
+        | 'none'
+        | 'silver'
+        | 'gold'
+        | 'platinum';
+    }
 
     // Pull out the referral code string BEFORE passing body to Mongoose
     // (schema's referredBy field is ObjectId — passing a string causes a cast error)
     const referredByCode = body.referredBy ?? '';
-const bodyWithoutReferral = { ...body };
-delete bodyWithoutReferral.referredBy;
+    const bodyWithoutReferral = { ...body };
+    delete bodyWithoutReferral.referredBy;
 
     // Look up referrer and push referral record onto their document
     if (referredByCode) {
@@ -83,11 +88,11 @@ delete bodyWithoutReferral.referredBy;
       if (referrer) {
         const today = new Date().toISOString().slice(0, 10);
         referrer.referrals.push({
-          referredName:  body.name,
+          referredName: body.name,
           referredPhone: body.phone,
-          date:          today,
-          status:        'pending',
-          reward:        100,
+          date: today,
+          status: 'pending',
+          reward: 100,
         } as never);
         await referrer.save();
       }
@@ -114,11 +119,15 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
 
     // Normalize enum fields to lowercase
     if (body.gender !== undefined) {
-  body.gender = body.gender.toLowerCase() as 'male' | 'female' | 'other';
-}
+      body.gender = body.gender.toLowerCase() as 'male' | 'female' | 'other';
+    }
     if (body.membershipTier !== undefined) {
-  body.membershipTier = body.membershipTier.toLowerCase() as 'none' | 'silver' | 'gold' | 'platinum';
-}
+      body.membershipTier = body.membershipTier.toLowerCase() as
+        | 'none'
+        | 'silver'
+        | 'gold'
+        | 'platinum';
+    }
 
     // The form sends the referral CODE string as `referredBy`, but the schema's
     // `referredBy` is an ObjectId (casting "" or a code string throws).
@@ -132,7 +141,7 @@ export const updateCustomer = async (req: Request, res: Response): Promise<void>
     const customer = await Customer.findByIdAndUpdate(
       req.params.id,
       { $set: update },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true },
     ).lean();
 
     if (!customer) {
@@ -183,9 +192,9 @@ export const addVisit = async (req: Request, res: Response): Promise<void> => {
     customer.visits.push(body as never);
 
     // ✅ Fix 2: Use correct schema field names (visitCount / totalSpent)
-    customer.visitCount   = customer.visits.length;
-    customer.totalSpent  += body.total;
-    customer.lastVisit    = body.date;
+    customer.visitCount = customer.visits.length;
+    customer.totalSpent += body.total;
+    customer.lastVisit = body.date;
 
     // Award 1 loyalty point per ₹10 spent
     customer.loyaltyPoints += Math.floor(body.total / 10);
@@ -214,7 +223,9 @@ export const addServiceRecord = async (req: Request, res: Response): Promise<voi
 
     res.status(201).json(customer);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to add service record', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to add service record', error: (err as Error).message });
   }
 };
 
@@ -232,7 +243,7 @@ export const addReferral = async (req: Request, res: Response): Promise<void> =>
 
     customer.referrals.push({
       ...body,
-      date:   body.date ?? new Date().toISOString().slice(0, 10),
+      date: body.date ?? new Date().toISOString().slice(0, 10),
       status: 'pending',
       reward: body.reward ?? 100,
     } as never);
@@ -256,9 +267,7 @@ export const updateReferralStatus = async (req: Request, res: Response): Promise
       return;
     }
 
-    const referral = customer.referrals.find(
-  (r) => r._id.toString() === req.params.referralId
-);
+    const referral = customer.referrals.find((r) => r._id.toString() === req.params.referralId);
     if (!referral) {
       res.status(404).json({ message: 'Referral not found' });
       return;
@@ -273,7 +282,9 @@ export const updateReferralStatus = async (req: Request, res: Response): Promise
     await customer.save();
     res.json(customer);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to update referral status', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to update referral status', error: (err as Error).message });
   }
 };
 
@@ -302,7 +313,9 @@ export const adjustLoyaltyPoints = async (req: Request, res: Response): Promise<
     await customer.save();
     res.json(customer);
   } catch (err) {
-    res.status(500).json({ message: 'Failed to adjust loyalty points', error: (err as Error).message });
+    res
+      .status(500)
+      .json({ message: 'Failed to adjust loyalty points', error: (err as Error).message });
   }
 };
 
@@ -317,8 +330,13 @@ export const updateMembership = async (req: Request, res: Response): Promise<voi
 
     const customer = await Customer.findByIdAndUpdate(
       req.params.id,
-      { $set: { membershipTier: membershipTier.toLowerCase(), membershipExpiry: membershipExpiry ?? '' } },
-      { new: true, runValidators: true }
+      {
+        $set: {
+          membershipTier: membershipTier.toLowerCase(),
+          membershipExpiry: membershipExpiry ?? '',
+        },
+      },
+      { new: true, runValidators: true },
     ).lean();
 
     if (!customer) {

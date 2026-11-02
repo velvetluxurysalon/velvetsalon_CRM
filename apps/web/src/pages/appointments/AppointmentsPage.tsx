@@ -1,15 +1,15 @@
-import { useState, useMemo, useEffect, useCallback, Fragment, useRef } from "react";
-import { useNavigate } from "react-router-dom";          // ← ADD THIS LINE
-import { SERVICES_CAT } from "../../db/services";
-import * as XLSX from "xlsx";
+import { useState, useMemo, useEffect, useCallback, Fragment, useRef } from 'react';
+import { useNavigate } from 'react-router-dom'; // ← ADD THIS LINE
+import { SERVICES_CAT } from '../../db/services';
+import * as XLSX from 'xlsx';
 
 // Daily report target — kept as a constant so it's easy to change later.
-const DAILY_REPORT_PHONE = "+919994119336";
+const DAILY_REPORT_PHONE = '+919994119336';
 const DAILY_REPORT_HOUR = 21; // 9 PM, 24h format
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status = "confirmed" | "in-progress" | "completed" | "cancelled" | "pending" | "billed";
-type ViewMode = "calendar" | "list";
+type Status = 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'pending' | 'billed';
+type ViewMode = 'calendar' | 'list';
 
 interface Appointment {
   _id: string;
@@ -38,7 +38,7 @@ interface StaffRoleApiRecord {
   _id: string;
   name: string;
   speciality: string;
-  status: "active" | "on_leave" | "inactive";
+  status: 'active' | 'on_leave' | 'inactive';
 }
 
 /** Minimal shape we need from GET /api/customers?q=... (same endpoint CustomersPage.tsx uses). */
@@ -48,30 +48,64 @@ interface CustomerLookupRecord {
   phone: string;
 }
 
-interface CalendarDot { date: string; count: number; }
+interface CalendarDot {
+  date: string;
+  count: number;
+}
 
 // ─── Static config ────────────────────────────────────────────────────────────
 // NOTE: Stylists are no longer hardcoded. They're fetched live from
 // GET /api/staff-roles (filtered to status=active client-side) so that
 // updates made on the Staff & Roles admin page show up here automatically.
 
-const STAFF_AVATAR_COLORS = ["#d4af37", "#b8860b", "#8a7050", "#6b5740", "#0f766e", "#7c3aed", "#db2777", "#2563eb"];
+const STAFF_AVATAR_COLORS = [
+  '#d4af37',
+  '#b8860b',
+  '#8a7050',
+  '#6b5740',
+  '#0f766e',
+  '#7c3aed',
+  '#db2777',
+  '#2563eb',
+];
 
 const initialsOf = (name: string) =>
-  name.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2);
+  name
+    .split(' ')
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
 const colorFor = (name: string) => {
   const code = name[0]?.toUpperCase().charCodeAt(0) ?? 65;
-  return STAFF_AVATAR_COLORS[code % STAFF_AVATAR_COLORS.length] ?? "#8a7050";
+  return STAFF_AVATAR_COLORS[code % STAFF_AVATAR_COLORS.length] ?? '#8a7050';
 };
 
-
-
 const TIME_SLOTS = [
-  "08:00","08:30",
-  "09:00","09:30","10:00","10:30","11:00","11:30",
-  "12:00","12:30","13:00","13:30","14:00","14:30",
-  "15:00","15:30","16:00","16:30","17:00","17:30",
-  "18:00","18:30","19:00","19:30",
+  '08:00',
+  '08:30',
+  '09:00',
+  '09:30',
+  '10:00',
+  '10:30',
+  '11:00',
+  '11:30',
+  '12:00',
+  '12:30',
+  '13:00',
+  '13:30',
+  '14:00',
+  '14:30',
+  '15:00',
+  '15:30',
+  '16:00',
+  '16:30',
+  '17:00',
+  '17:30',
+  '18:00',
+  '18:30',
+  '19:00',
+  '19:30',
 ];
 
 // NEW: mirrors ContactPage.tsx's getAvailableSlots — when the modal's date is
@@ -80,99 +114,135 @@ const TIME_SLOTS = [
 const getAvailableSlots = (date: string): string[] => {
   if (date !== todayStr) return TIME_SLOTS;
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-  return TIME_SLOTS.filter(t => {
-    const [h = 0, m = 0] = t.split(":").map(Number);
+  return TIME_SLOTS.filter((t) => {
+    const [h = 0, m = 0] = t.split(':').map(Number);
     return h * 60 + m > nowMinutes;
   });
 };
 
-const STATUS_CFG: Record<Status, { label:string; bg:string; color:string; dot:string }> = {
-  confirmed:     { label:"Confirmed",   bg:"#eaf3de", color:"#3b6d11", dot:"#5a9e2f" },
-  "in-progress": { label:"In Progress", bg:"#faeeda", color:"#633806", dot:"#d4711f" },
-  completed:     { label:"Completed",   bg:"#f0f0f0", color:"#444",    dot:"#999"    },
-  cancelled:     { label:"Cancelled",   bg:"#fcebeb", color:"#a32d2d", dot:"#c0392b" },
-  pending:       { label:"Pending",     bg:"#f1efe8", color:"#5f5e5a", dot:"#999"    },
-  billed:        { label:"Billed",      bg:"#eef2ff", color:"#3730a3", dot:"#6366f1" },   // ← ADD THIS LINE
+const STATUS_CFG: Record<Status, { label: string; bg: string; color: string; dot: string }> = {
+  confirmed: { label: 'Confirmed', bg: '#eaf3de', color: '#3b6d11', dot: '#5a9e2f' },
+  'in-progress': { label: 'In Progress', bg: '#faeeda', color: '#633806', dot: '#d4711f' },
+  completed: { label: 'Completed', bg: '#f0f0f0', color: '#444', dot: '#999' },
+  cancelled: { label: 'Cancelled', bg: '#fcebeb', color: '#a32d2d', dot: '#c0392b' },
+  pending: { label: 'Pending', bg: '#f1efe8', color: '#5f5e5a', dot: '#999' },
+  billed: { label: 'Billed', bg: '#eef2ff', color: '#3730a3', dot: '#6366f1' }, // ← ADD THIS LINE
 };
 
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const DAYS   = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const today    = new Date();
+const today = new Date();
 const todayStr = today.toISOString().slice(0, 10);
 const dateStrOf = (d: Date) => d.toISOString().slice(0, 10);
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 const API = `${API_BASE}/api/appointments`;
 const STAFF_API = `${API_BASE}/api/staff-roles`;
 const token = (): string => {
   try {
-    const parsed = JSON.parse(localStorage.getItem("velvet_token") ?? "{}") as { token?: string };
-    return parsed.token ?? "";
+    const parsed = JSON.parse(localStorage.getItem('velvet_token') ?? '{}') as { token?: string };
+    return parsed.token ?? '';
   } catch {
-    return "";
+    return '';
   }
 };
-const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
+const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` });
 
 // ── Excel export helpers ────────────────────────────────────────────────────
 // Builds a worksheet from any Appointment[] and triggers a browser download.
 // staffNameById resolves the stored staff ObjectId to a human-readable name
 // (falls back to the raw id if the staff record can't be found, e.g. deleted staff).
-function downloadAppointmentsExcel(rows: Appointment[], filename: string, staffNameById: Map<string, string>) {
-  const sheetData = rows.map(a => ({
+function downloadAppointmentsExcel(
+  rows: Appointment[],
+  filename: string,
+  staffNameById: Map<string, string>,
+) {
+  const sheetData = rows.map((a) => ({
     Customer: a.customer,
     Phone: a.phone,
     Service: a.service,
-    Staff: staffNameById.get(a.staff) ?? "Unknown Staff (removed)",
+    Staff: staffNameById.get(a.staff) ?? 'Unknown Staff (removed)',
     Date: a.date,
     Time: a.time,
-    "Duration (min)": a.duration,
+    'Duration (min)': a.duration,
     Status: a.status,
-    "Walk-in": a.isWalkIn ? "Yes" : "No",
+    'Walk-in': a.isWalkIn ? 'Yes' : 'No',
     Notes: a.notes,
   }));
   const ws = XLSX.utils.json_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Appointments");
+  XLSX.utils.book_append_sheet(wb, ws, 'Appointments');
   XLSX.writeFile(wb, filename);
 }
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
 const Ic = ({ n, s = 16 }: { n: string; s?: number }) => {
   const p: Record<string, string> = {
-    plus:     "M12 5v14M5 12h14",
-    calendar: "M3 4h18v18H3zM3 10h18M8 2v4M16 2v4",
-    list:     "M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1",
-    user:     "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
-    phone:    "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z",
-    scissors: "M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12",
-    x:        "M18 6L6 18M6 6l12 12",
-    check:    "M20 6L9 17l-5-5",
-    whatsapp: "M12 2a10 10 0 0 1 8.93 14.47L22 22l-5.53-1.07A10 10 0 1 1 12 2z",
-    walkin:   "M13 4a1 1 0 1 0 2 0 1 1 0 0 0-2 0zM6 20h4l1-4 2 2v4h2v-5l-2-2 1-3a9 9 0 0 0 4 2v-2a7 7 0 0 1-3-1l-1-2a1 1 0 0 0-1 0l-3 3L6 14H4v2h2zM4 8h7",
-    search:   "M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z",
-    edit:     "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z",
-    trash:    "M3 6h18M19 6l-1 14H6L5 6M9 6V4h6v2",
-    chev_l:   "M15 18l-6-6 6-6",
-    chev_r:   "M9 18l6-6-6-6",
-    refresh:  "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-    bell:     "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0",
+    plus: 'M12 5v14M5 12h14',
+    calendar: 'M3 4h18v18H3zM3 10h18M8 2v4M16 2v4',
+    list: 'M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1',
+    user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
+    phone:
+      'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z',
+    scissors:
+      'M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12',
+    x: 'M18 6L6 18M6 6l12 12',
+    check: 'M20 6L9 17l-5-5',
+    whatsapp: 'M12 2a10 10 0 0 1 8.93 14.47L22 22l-5.53-1.07A10 10 0 1 1 12 2z',
+    walkin:
+      'M13 4a1 1 0 1 0 2 0 1 1 0 0 0-2 0zM6 20h4l1-4 2 2v4h2v-5l-2-2 1-3a9 9 0 0 0 4 2v-2a7 7 0 0 1-3-1l-1-2a1 1 0 0 0-1 0l-3 3L6 14H4v2h2zM4 8h7',
+    search: 'M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z',
+    edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z',
+    trash: 'M3 6h18M19 6l-1 14H6L5 6M9 6V4h6v2',
+    chev_l: 'M15 18l-6-6 6-6',
+    chev_r: 'M9 18l6-6-6-6',
+    refresh:
+      'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+    bell: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0',
   };
   return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      {(p[n] ?? "").split("M").filter(Boolean).map((d, i) => (
-  <path key={i} d={`M${d}`} />
-))}
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {(p[n] ?? '')
+        .split('M')
+        .filter(Boolean)
+        .map((d, i) => (
+          <path key={i} d={`M${d}`} />
+        ))}
     </svg>
   );
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function getDaysInMonth(y: number, m: number) { return new Date(y, m + 1, 0).getDate(); }
-function getFirstDay(y: number, m: number)    { return new Date(y, m, 1).getDay(); }
+function getDaysInMonth(y: number, m: number) {
+  return new Date(y, m + 1, 0).getDate();
+}
+function getFirstDay(y: number, m: number) {
+  return new Date(y, m, 1).getDay();
+}
 
 // Display-only: convert a 24h "HH:mm" value into 12h "h:mm AM/PM" for labels/dropdowns.
 // The underlying value used for filtering/matching/storage stays in 24h.
@@ -182,22 +252,69 @@ const fmtTime12 = (t: string) => {
   const h12 = h % 12 || 12;
   return `${String(h12)}:${String(m).padStart(2, '0')} ${ampm}`;
 };
-const emptyForm = (): Omit<Appointment, "_id"> => ({
-  customer:"", phone:"", service:"", staff:"", date:todayStr,
-  time:"10:00", duration:30, status:"confirmed", isWalkIn:false, notes:"",
+
+// Opens WhatsApp (app or web) with a pre-filled confirmation message.
+// Indian numbers: 10 digits get the 91 country code prefixed.
+const openWhatsAppConfirmation = (
+  phone: string,
+  customer: string,
+  service: string,
+  date: string,
+  time: string,
+  staffName: string,
+) => {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  if (digits.length === 10) digits = `91${digits}`;
+  if (digits.length < 11) return false; // invalid number
+
+  const prettyDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  const message =
+    `Hello ${customer || 'there'},\n\n` +
+    `Your appointment at Velvet Premium Unisex Salon is confirmed.\n\n` +
+    `Service: ${service || '-'}\n` +
+    `Date: ${prettyDate}\n` +
+    `Time: ${fmtTime12(time)}\n` +
+    (staffName ? `Stylist: ${staffName}\n` : '') +
+    `\nWe look forward to seeing you!`;
+
+  window.open(
+    `https://wa.me/${digits}?text=${encodeURIComponent(message)}`,
+    '_blank',
+    'noopener,noreferrer',
+  );
+  return true;
+};
+
+const emptyForm = (): Omit<Appointment, '_id'> => ({
+  customer: '',
+  phone: '',
+  service: '',
+  staff: '',
+  date: todayStr,
+  time: '10:00',
+  duration: 30,
+  status: 'confirmed',
+  isWalkIn: false,
+  notes: '',
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const navigate = useNavigate();   // ← ADD THIS LINE
-  const [calDots, setCalDots]           = useState<Record<string, number>>({});
-  const [loading, setLoading]           = useState(false);
-  const [saving, setSaving]             = useState(false);
-  const [apiError, setApiError]         = useState("");
+  const navigate = useNavigate(); // ← ADD THIS LINE
+  const [calDots, setCalDots] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState('');
 
- // staff (live, from Staff & Roles backend)
-  const [staffList, setStaffList]       = useState<StaffMember[]>([]);
+  // staff (live, from Staff & Roles backend)
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   // ALL staff (any status), used only for id→name fallback resolution —
   // declared here (not near fetchAllStaffNames further down) because
@@ -211,116 +328,127 @@ export default function AppointmentsPage() {
   // staff still resolve to a real name instead of the raw ObjectId.
   const staffNameById = useMemo(() => {
     const map = new Map(allStaffNameMap);
-    staffList.forEach(s => map.set(s.id, s.name)); // active staff take priority
+    staffList.forEach((s) => map.set(s.id, s.name)); // active staff take priority
     return map;
   }, [staffList, allStaffNameMap]);
 
-  const [view, setView]               = useState<ViewMode>("calendar");
+  const [view, setView] = useState<ViewMode>('calendar');
   const [selectedDate, setSelectedDate] = useState(todayStr);
-  const [calYear,  setCalYear]          = useState(today.getFullYear());
-  const [calMonth, setCalMonth]         = useState(today.getMonth());
-  const [showModal, setShowModal]   = useState(false);
-  const [editingId, setEditingId]   = useState<string | null>(null);
-  const [form, setForm]             = useState(emptyForm());
+  const [calYear, setCalYear] = useState(today.getFullYear());
+  const [calMonth, setCalMonth] = useState(today.getMonth());
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm());
 
   // NEW: times already booked for the currently-selected staff + date in the
   // modal, so the Time dropdown only offers genuinely free slots — mirrors
   // ContactPage.tsx's fetchBookedSlots for the customer-facing booking form.
-  const [modalBookedTimes, setModalBookedTimes]   = useState<string[]>([]);
+  const [modalBookedTimes, setModalBookedTimes] = useState<string[]>([]);
   const [modalSlotsLoading, setModalSlotsLoading] = useState(false);
 
-  const fetchModalBookedSlots = useCallback(async (staffId: string, date: string) => {
-    if (!staffId || !date) { setModalBookedTimes([]); return; }
-    setModalSlotsLoading(true);
-    try {
-      const params = new URLSearchParams({ date, staff: staffId });
-      const res = await fetch(`${API}?${params}`, { headers: headers() });
-      if (!res.ok) { setModalBookedTimes([]); return; }
-      const data = (await res.json()) as Appointment[];
-      // Exclude cancelled appointments (slot is free again) and, when
-      // editing, exclude the appointment being edited (its own slot isn't "taken").
-      setModalBookedTimes(
-        data
-          .filter(a => a.status !== "cancelled" && a._id !== editingId)
-          .map(a => a.time.slice(0, 5))
-      );
-    } catch {
-      setModalBookedTimes([]);
-    } finally {
-      setModalSlotsLoading(false);
-    }
-  }, [editingId]);
+  const fetchModalBookedSlots = useCallback(
+    async (staffId: string, date: string) => {
+      if (!staffId || !date) {
+        setModalBookedTimes([]);
+        return;
+      }
+      setModalSlotsLoading(true);
+      try {
+        const params = new URLSearchParams({ date, staff: staffId });
+        const res = await fetch(`${API}?${params}`, { headers: headers() });
+        if (!res.ok) {
+          setModalBookedTimes([]);
+          return;
+        }
+        const data = (await res.json()) as Appointment[];
+        // Exclude cancelled appointments (slot is free again) and, when
+        // editing, exclude the appointment being edited (its own slot isn't "taken").
+        setModalBookedTimes(
+          data
+            .filter((a) => a.status !== 'cancelled' && a._id !== editingId)
+            .map((a) => a.time.slice(0, 5)),
+        );
+      } catch {
+        setModalBookedTimes([]);
+      } finally {
+        setModalSlotsLoading(false);
+      }
+    },
+    [editingId],
+  );
 
   // Refetch whenever the modal is open and staff/date change
   useEffect(() => {
     if (showModal) void fetchModalBookedSlots(form.staff, form.date);
   }, [showModal, form.staff, form.date, fetchModalBookedSlots]);
 
-  const [search, setSearch]           = useState("");
-  const [filterStaff, setFilterStaff] = useState("all");
-  const [filterStatus, setFilterStatus] = useState<Status | "all">("all");
+  const [search, setSearch] = useState('');
+  const [filterStaff, setFilterStaff] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<Status | 'all'>('all');
 
   // ── Auto-fill customer name from phone number ────────────────────────────
   // Reuses the same GET /api/customers?q=... endpoint CustomersPage.tsx uses
   // (there's no dedicated phone-lookup route), then finds an exact phone match
   // client-side.
- // AFTER
-const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
-const [customerNotFound, setCustomerNotFound] = useState(false);
-const lastLookedUpPhoneRef = useRef<string>(""); // avoid re-querying the same number
-// True whenever the Customer Name field currently holds text WE put there
-// (autofill or our own clearing) rather than something the user typed.
-// This is far more reliable than comparing strings, which breaks the moment
-// two different matched customers are typed in sequence.
-const nameIsAutoFilledRef = useRef(true); // starts true — field is empty, safe to fill
+  // AFTER
+  const [customerLookupLoading, setCustomerLookupLoading] = useState(false);
+  const [customerNotFound, setCustomerNotFound] = useState(false);
+  const lastLookedUpPhoneRef = useRef<string>(''); // avoid re-querying the same number
+  // True whenever the Customer Name field currently holds text WE put there
+  // (autofill or our own clearing) rather than something the user typed.
+  // This is far more reliable than comparing strings, which breaks the moment
+  // two different matched customers are typed in sequence.
+  const nameIsAutoFilledRef = useRef(true); // starts true — field is empty, safe to fill
 
-useEffect(() => {
-  if (form.isWalkIn) return; // walk-ins skip lookup entirely
-  const digits = form.phone.replace(/\D/g, "");
-  if (digits.length !== 10) {
-    setCustomerNotFound(false); // number no longer complete — hide any stale "not found" message
-    return;
-  }
-  if (lastLookedUpPhoneRef.current === digits) return;
+  useEffect(() => {
+    if (form.isWalkIn) return; // walk-ins skip lookup entirely
+    const digits = form.phone.replace(/\D/g, '');
+    if (digits.length !== 10) {
+      setCustomerNotFound(false); // number no longer complete — hide any stale "not found" message
+      return;
+    }
+    if (lastLookedUpPhoneRef.current === digits) return;
 
-  const timer = setTimeout(() => {
-    void (async () => {
-      lastLookedUpPhoneRef.current = digits;
-      setCustomerLookupLoading(true);
-      setCustomerNotFound(false);
-      try {
-        const res = await fetch(`${API_BASE}/api/customers?q=${digits}`, { headers: headers() });
-        if (!res.ok) return; // request failed — leave whatever the user typed
-        const data = (await res.json()) as CustomerLookupRecord[];
-        const match = data.find(c => c.phone.replace(/\D/g, "") === digits);
-        if (match) {
-          setForm(f => {
-            if (f.phone.replace(/\D/g, "") !== digits) return f; // phone changed again while we were fetching
-            if (f.customer && !nameIsAutoFilledRef.current) return f; // user typed their own name — never touch it
-            nameIsAutoFilledRef.current = true;
-            return { ...f, customer: match.name };
-          });
-        } else {
-          setForm(f => {
-            if (f.phone.replace(/\D/g, "") !== digits) return f;
-            if (!nameIsAutoFilledRef.current) return f; // user typed their own name — never touch it
-            nameIsAutoFilledRef.current = true; // the "" we're setting is also our own autofill
-            return { ...f, customer: "" };
-          });
-          setCustomerNotFound(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        lastLookedUpPhoneRef.current = digits;
+        setCustomerLookupLoading(true);
+        setCustomerNotFound(false);
+        try {
+          const res = await fetch(`${API_BASE}/api/customers?q=${digits}`, { headers: headers() });
+          if (!res.ok) return; // request failed — leave whatever the user typed
+          const data = (await res.json()) as CustomerLookupRecord[];
+          const match = data.find((c) => c.phone.replace(/\D/g, '') === digits);
+          if (match) {
+            setForm((f) => {
+              if (f.phone.replace(/\D/g, '') !== digits) return f; // phone changed again while we were fetching
+              if (f.customer && !nameIsAutoFilledRef.current) return f; // user typed their own name — never touch it
+              nameIsAutoFilledRef.current = true;
+              return { ...f, customer: match.name };
+            });
+          } else {
+            setForm((f) => {
+              if (f.phone.replace(/\D/g, '') !== digits) return f;
+              if (!nameIsAutoFilledRef.current) return f; // user typed their own name — never touch it
+              nameIsAutoFilledRef.current = true; // the "" we're setting is also our own autofill
+              return { ...f, customer: '' };
+            });
+            setCustomerNotFound(true);
+          }
+        } catch {
+          /* silent — lookup is best-effort, never blocks booking */
+        } finally {
+          setCustomerLookupLoading(false);
         }
-      } catch {
-        /* silent — lookup is best-effort, never blocks booking */
-      } finally {
-        setCustomerLookupLoading(false);
-      }
-    })();
-  }, 500); // debounce so it doesn't fire on every keystroke
+      })();
+    }, 500); // debounce so it doesn't fire on every keystroke
 
-  return () => { clearTimeout(timer); };
-}, [form.phone, form.isWalkIn]);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [form.phone, form.isWalkIn]);
 
- // ── Fetch active staff for the calendar columns / picker ───────────────────
+  // ── Fetch active staff for the calendar columns / picker ───────────────────
   const fetchStaffList = useCallback(async () => {
     setStaffLoading(true);
     try {
@@ -328,8 +456,8 @@ useEffect(() => {
       if (!res.ok) return;
       const data = (await res.json()) as StaffRoleApiRecord[];
       const mapped: StaffMember[] = data
-        .filter(s => s.status === "active")
-        .map(s => ({
+        .filter((s) => s.status === 'active')
+        .map((s) => ({
           id: s._id,
           name: s.name,
           initials: initialsOf(s.name),
@@ -337,13 +465,18 @@ useEffect(() => {
           color: colorFor(s.name),
         }));
       setStaffList(mapped);
-    } catch { /* silent — calendar still works with an empty staff list */ }
-    finally { setStaffLoading(false); }
+    } catch {
+      /* silent — calendar still works with an empty staff list */
+    } finally {
+      setStaffLoading(false);
+    }
   }, []);
 
-  useEffect(() => { void fetchStaffList(); }, [fetchStaffList]);
+  useEffect(() => {
+    void fetchStaffList();
+  }, [fetchStaffList]);
 
- // ── Fetch ALL staff (any status) purely for id→name resolution ─────────────
+  // ── Fetch ALL staff (any status) purely for id→name resolution ─────────────
   // staffList above is deliberately active-only (drives the calendar columns
   // and the staff picker). But an appointment can reference a staff member who
   // has since gone on leave / inactive / been removed — that id would then be
@@ -355,26 +488,30 @@ useEffect(() => {
       const res = await fetch(STAFF_API, { headers: headers() });
       if (!res.ok) return;
       const data = (await res.json()) as StaffRoleApiRecord[];
-      setAllStaffNameMap(new Map(data.map(s => [s._id, s.name])));
-    } catch { /* silent — falls back to active-only names / raw id */ }
+      setAllStaffNameMap(new Map(data.map((s) => [s._id, s.name])));
+    } catch {
+      /* silent — falls back to active-only names / raw id */
+    }
   }, []);
 
-  useEffect(() => { void fetchAllStaffNames(); }, [fetchAllStaffNames]);
+  useEffect(() => {
+    void fetchAllStaffNames();
+  }, [fetchAllStaffNames]);
 
   // ── Fetch appointments for selected date ─────────────────────────────────
   const fetchAppointments = useCallback(async () => {
     setLoading(true);
-    setApiError("");
+    setApiError('');
     try {
       const params = new URLSearchParams({ date: selectedDate });
-      if (filterStaff !== "all") params.append("staff", filterStaff);
-      if (filterStatus !== "all") params.append("status", filterStatus);
+      if (filterStaff !== 'all') params.append('staff', filterStaff);
+      if (filterStatus !== 'all') params.append('status', filterStatus);
       const res = await fetch(`${API}?${params}`, { headers: headers() });
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as Appointment[];
       setAppointments(data);
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to load appointments.");
+      setApiError(e instanceof Error ? e.message : 'Failed to load appointments.');
     } finally {
       setLoading(false);
     }
@@ -383,18 +520,26 @@ useEffect(() => {
   // ── Fetch calendar dots for current month ─────────────────────────────────
   const fetchCalDots = useCallback(async () => {
     try {
-      const month = `${String(calYear)}-${String(calMonth + 1).padStart(2, "0")}`;
+      const month = `${String(calYear)}-${String(calMonth + 1).padStart(2, '0')}`;
       const res = await fetch(`${API}/calendar?month=${month}`, { headers: headers() });
       if (!res.ok) return;
       const data = (await res.json()) as CalendarDot[];
       const map: Record<string, number> = {};
-      data.forEach(d => { map[d.date] = d.count; });
+      data.forEach((d) => {
+        map[d.date] = d.count;
+      });
       setCalDots(map);
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }, [calYear, calMonth]);
 
-  useEffect(() => { void fetchAppointments(); }, [fetchAppointments]);
-  useEffect(() => { void fetchCalDots(); },     [fetchCalDots]);
+  useEffect(() => {
+    void fetchAppointments();
+  }, [fetchAppointments]);
+  useEffect(() => {
+    void fetchCalDots();
+  }, [fetchCalDots]);
 
   // ── Export all appointments (not just the selected day) ─────────────────
   const [exporting, setExporting] = useState(false);
@@ -410,7 +555,7 @@ useEffect(() => {
       const all = await exportAllAppointments();
       downloadAppointmentsExcel(all, `appointments_${todayStr}.xlsx`, staffNameById);
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to export appointments.");
+      setApiError(e instanceof Error ? e.message : 'Failed to export appointments.');
     } finally {
       setExporting(false);
     }
@@ -430,7 +575,7 @@ useEffect(() => {
       const nowDateStr = dateStrOf(now);
       if (now.getHours() === DAILY_REPORT_HOUR && dailySendFiredRef.current !== nowDateStr) {
         dailySendFiredRef.current = nowDateStr;
-       void (async () => {
+        void (async () => {
           try {
             const all = await exportAllAppointments();
             downloadAppointmentsExcel(all, `appointments_${nowDateStr}.xlsx`, staffNameById);
@@ -438,7 +583,7 @@ useEffect(() => {
             // This endpoint doesn't exist yet — it needs to be built server-side
             // with a WhatsApp Business API / Twilio integration.
             await fetch(`${API_BASE}/api/reports/send-daily-appointments`, {
-              method: "POST",
+              method: 'POST',
               headers: headers(),
               body: JSON.stringify({ phone: DAILY_REPORT_PHONE, date: nowDateStr }),
             });
@@ -450,37 +595,59 @@ useEffect(() => {
     };
     const id = setInterval(checkAndSend, 60000); // check every minute
     checkAndSend(); // also check immediately on mount
-    return () => { clearInterval(id); };
+    return () => {
+      clearInterval(id);
+    };
   }, [exportAllAppointments, staffNameById]);
 
   // ── Derived list ─────────────────────────────────────────────────────────
-  const dayAppointments = useMemo(() =>
-    appointments
-      .filter(a => !search ||
-        a.customer.toLowerCase().includes(search.toLowerCase()) ||
-        a.service.toLowerCase().includes(search.toLowerCase()))
-      .sort((a, b) => a.time.localeCompare(b.time)),
-    [appointments, search]
+  const dayAppointments = useMemo(
+    () =>
+      appointments
+        .filter(
+          (a) =>
+            !search ||
+            a.customer.toLowerCase().includes(search.toLowerCase()) ||
+            a.service.toLowerCase().includes(search.toLowerCase()),
+        )
+        .sort((a, b) => a.time.localeCompare(b.time)),
+    [appointments, search],
   );
 
   const daysInMonth = getDaysInMonth(calYear, calMonth);
-  const firstDay    = getFirstDay(calYear, calMonth);
+  const firstDay = getFirstDay(calYear, calMonth);
 
   // ── Modal helpers ─────────────────────────────────────────────────────────
   const openNew = (walkIn = false) => {
-    setForm({ ...emptyForm(), date: selectedDate, isWalkIn: walkIn,
-      customer: walkIn ? "Walk-in Guest" : "" });
+    setForm({
+      ...emptyForm(),
+      date: selectedDate,
+      isWalkIn: walkIn,
+      customer: walkIn ? 'Walk-in Guest' : '',
+    });
     setEditingId(null);
     setShowModal(true);
   };
   const openEdit = (a: Appointment) => {
-    setForm({ customer:a.customer, phone:a.phone, service:a.service, staff:a.staff,
-      date:a.date, time:a.time, duration:a.duration, status:a.status,
-      isWalkIn:a.isWalkIn, notes:a.notes });
+    setForm({
+      customer: a.customer,
+      phone: a.phone,
+      service: a.service,
+      staff: a.staff,
+      date: a.date,
+      time: a.time,
+      duration: a.duration,
+      status: a.status,
+      isWalkIn: a.isWalkIn,
+      notes: a.notes,
+    });
     setEditingId(a._id);
     setShowModal(true);
   };
-  const closeModal = () => { setShowModal(false); setEditingId(null); };
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingId(null);
+  };
 
   // ── Save (create or update) ───────────────────────────────────────────────
   const saveAppointment = async () => {
@@ -489,26 +656,30 @@ useEffect(() => {
     try {
       if (editingId) {
         const res = await fetch(`${API}/${editingId}`, {
-          method: "PUT", headers: headers(), body: JSON.stringify(form),
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify(form),
         });
         if (!res.ok) throw new Error(await res.text());
         const updated = (await res.json()) as Appointment;
-        setAppointments(prev => prev.map(a => a._id === editingId ? updated : a));
+        setAppointments((prev) => prev.map((a) => (a._id === editingId ? updated : a)));
       } else {
         const res = await fetch(API, {
-          method: "POST", headers: headers(), body: JSON.stringify(form),
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(form),
         });
         if (!res.ok) throw new Error(await res.text());
         const created = (await res.json()) as Appointment;
         if (created.date === selectedDate) {
-          setAppointments(prev => [...prev, created]);
+          setAppointments((prev) => [...prev, created]);
         }
         // refresh calendar dots
         void fetchCalDots();
       }
       closeModal();
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to save.");
+      setApiError(e instanceof Error ? e.message : 'Failed to save.');
     } finally {
       setSaving(false);
     }
@@ -516,14 +687,14 @@ useEffect(() => {
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteAppt = async (id: string) => {
-    if (!confirm("Delete this appointment?")) return;
+    if (!confirm('Delete this appointment?')) return;
     try {
-      const res = await fetch(`${API}/${id}`, { method: "DELETE", headers: headers() });
+      const res = await fetch(`${API}/${id}`, { method: 'DELETE', headers: headers() });
       if (!res.ok) throw new Error(await res.text());
-      setAppointments(prev => prev.filter(a => a._id !== id));
+      setAppointments((prev) => prev.filter((a) => a._id !== id));
       void fetchCalDots();
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to delete.");
+      setApiError(e instanceof Error ? e.message : 'Failed to delete.');
     }
   };
 
@@ -531,27 +702,33 @@ useEffect(() => {
   const updateStatus = async (id: string, status: Status) => {
     try {
       const res = await fetch(`${API}/${id}/status`, {
-        method: "PATCH", headers: headers(), body: JSON.stringify({ status }),
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify({ status }),
       });
-     if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await res.text());
       const updated = (await res.json()) as Appointment;
-      setAppointments(prev => prev.map(a => a._id === id ? updated : a));
+      setAppointments((prev) => prev.map((a) => (a._id === id ? updated : a)));
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to update status.");
+      setApiError(e instanceof Error ? e.message : 'Failed to update status.');
     }
   };
 
   // ── Calendar nav ──────────────────────────────────────────────────────────
   const prevMonth = () => {
-    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); }
-    else setCalMonth(m => m - 1);
+    if (calMonth === 0) {
+      setCalYear((y) => y - 1);
+      setCalMonth(11);
+    } else setCalMonth((m) => m - 1);
   };
   const nextMonth = () => {
-    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); }
-    else setCalMonth(m => m + 1);
+    if (calMonth === 11) {
+      setCalYear((y) => y + 1);
+      setCalMonth(0);
+    } else setCalMonth((m) => m + 1);
   };
 
-  const staffOf = (id: string) => staffList.find(s => s.id === id);
+  const staffOf = (id: string) => staffList.find((s) => s.id === id);
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -992,30 +1169,68 @@ useEffect(() => {
       `}</style>
 
       <div className="ap-root">
-
         {/* ── Topbar ── */}
         <header className="ap-topbar">
           <div className="ap-page-title">Appointments</div>
           <div className="ap-topbar-right">
-            <button className="ap-btn ap-btn-secondary ap-btn-sm" onClick={() => { void fetchAppointments(); }} title="Refresh">
-              <Ic n="refresh" s={13}/> Refresh
+            <button
+              className="ap-btn ap-btn-secondary ap-btn-sm"
+              onClick={() => {
+                void fetchAppointments();
+              }}
+              title="Refresh"
+            >
+              <Ic n="refresh" s={13} /> Refresh
             </button>
-            <button className="ap-btn ap-btn-secondary ap-btn-sm" onClick={() => { void handleExportClick(); }} disabled={exporting} title="Download all appointments as Excel">
-              {exporting ? "Exporting…" : <><Ic n="list" s={13}/> Export Excel</>}
+            <button
+              className="ap-btn ap-btn-secondary ap-btn-sm"
+              onClick={() => {
+                void handleExportClick();
+              }}
+              disabled={exporting}
+              title="Download all appointments as Excel"
+            >
+              {exporting ? (
+                'Exporting…'
+              ) : (
+                <>
+                  <Ic n="list" s={13} /> Export Excel
+                </>
+              )}
             </button>
             <div className="ap-view-toggle">
-              <button className={`ap-view-btn${view==="calendar"?" active":""}`} onClick={() => { setView("calendar"); }}>
-                <Ic n="calendar" s={14}/> Calendar
+              <button
+                className={`ap-view-btn${view === 'calendar' ? ' active' : ''}`}
+                onClick={() => {
+                  setView('calendar');
+                }}
+              >
+                <Ic n="calendar" s={14} /> Calendar
               </button>
-              <button className={`ap-view-btn${view==="list"?" active":""}`} onClick={() => { setView("list"); }}>
-                <Ic n="list" s={14}/> List
+              <button
+                className={`ap-view-btn${view === 'list' ? ' active' : ''}`}
+                onClick={() => {
+                  setView('list');
+                }}
+              >
+                <Ic n="list" s={14} /> List
               </button>
             </div>
-            <button className="ap-btn ap-btn-gold" onClick={() => { openNew(true); }}>
-              <Ic n="walkin" s={14}/> Walk-in
+            <button
+              className="ap-btn ap-btn-gold"
+              onClick={() => {
+                openNew(true);
+              }}
+            >
+              <Ic n="walkin" s={14} /> Walk-in
             </button>
-            <button className="ap-btn ap-btn-primary" onClick={() => { openNew(false); }}>
-              <Ic n="plus" s={14}/> New Booking
+            <button
+              className="ap-btn ap-btn-primary"
+              onClick={() => {
+                openNew(false);
+              }}
+            >
+              <Ic n="plus" s={14} /> New Booking
             </button>
           </div>
         </header>
@@ -1024,34 +1239,56 @@ useEffect(() => {
         {apiError && (
           <div className="ap-error-banner">
             ⚠ {apiError}
-            <button className="ap-error-close" onClick={() => { setApiError(""); }}><Ic n="x" s={14}/></button>
+            <button
+              className="ap-error-close"
+              onClick={() => {
+                setApiError('');
+              }}
+            >
+              <Ic n="x" s={14} />
+            </button>
           </div>
         )}
 
         <div className="ap-body">
-
           {/* ── Left ── */}
           <aside className="ap-left">
             <div className="ap-cal-header">
-              <button className="ap-cal-nav-btn" onClick={prevMonth}><Ic n="chev_l" s={12}/></button>
-              <span className="ap-cal-month">{MONTHS[calMonth]} {calYear}</span>
-              <button className="ap-cal-nav-btn" onClick={nextMonth}><Ic n="chev_r" s={12}/></button>
+              <button className="ap-cal-nav-btn" onClick={prevMonth}>
+                <Ic n="chev_l" s={12} />
+              </button>
+              <span className="ap-cal-month">
+                {MONTHS[calMonth]} {calYear}
+              </span>
+              <button className="ap-cal-nav-btn" onClick={nextMonth}>
+                <Ic n="chev_r" s={12} />
+              </button>
             </div>
             <div className="ap-cal-days-header">
-              {DAYS.map(d => <div key={d} className="ap-cal-day-name">{d}</div>)}
+              {DAYS.map((d) => (
+                <div key={d} className="ap-cal-day-name">
+                  {d}
+                </div>
+              ))}
             </div>
             <div className="ap-cal-grid">
-              {Array.from({ length: firstDay }).map((_, i) => <div key={`b${i.toString()}`}/>)}
+              {Array.from({ length: firstDay }).map((_, i) => (
+                <div key={`b${i.toString()}`} />
+              ))}
               {Array.from({ length: daysInMonth }).map((_, i) => {
-                const day     = i + 1;
-const dateStr = `${String(calYear)}-${String(calMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-                const isToday    = dateStr === todayStr;
+                const day = i + 1;
+                const dateStr = `${String(calYear)}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const isToday = dateStr === todayStr;
                 const isSelected = dateStr === selectedDate;
-                const hasAppts   = !!calDots[dateStr];
+                const hasAppts = !!calDots[dateStr];
                 return (
-                  <div key={day}
-                    className={`ap-cal-cell${isToday?" today":""}${isSelected?" selected":""}${hasAppts&&!isSelected?" has-appts":""}`}
-                    onClick={() => { setSelectedDate(dateStr); }}>
+                  <div
+                    key={day}
+                    className={`ap-cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}${hasAppts && !isSelected ? ' has-appts' : ''}`}
+                    onClick={() => {
+                      setSelectedDate(dateStr);
+                    }}
+                  >
                     {day}
                   </div>
                 );
@@ -1066,11 +1303,13 @@ const dateStr = `${String(calYear)}-${String(calMonth+1).padStart(2,"0")}-${Stri
               </div>
               <div className="ap-cal-stat-row">
                 <span className="ap-stat-label">Walk-ins</span>
-                <span className="ap-stat-val">{appointments.filter(a=>a.isWalkIn).length}</span>
+                <span className="ap-stat-val">{appointments.filter((a) => a.isWalkIn).length}</span>
               </div>
               <div className="ap-cal-stat-row">
                 <span className="ap-stat-label">Confirmed</span>
-                <span className="ap-stat-val">{appointments.filter(a=>a.status==="confirmed").length}</span>
+                <span className="ap-stat-val">
+                  {appointments.filter((a) => a.status === 'confirmed').length}
+                </span>
               </div>
             </div>
 
@@ -1078,88 +1317,164 @@ const dateStr = `${String(calYear)}-${String(calMonth+1).padStart(2,"0")}-${Stri
             <div className="ap-staff-filter">
               <div className="ap-filter-title">Filter by Staff</div>
               <div className="ap-staff-chips">
-                <div className={`ap-staff-chip${filterStaff==="all"?" active":""}`}
-                  onClick={() => { setFilterStaff("all"); }}>
-                  <div className="ap-chip-avatar" style={{ background:"#8a7050" }}>All</div>
-                  <div><div className="ap-chip-name">All Staff</div></div>
+                <div
+                  className={`ap-staff-chip${filterStaff === 'all' ? ' active' : ''}`}
+                  onClick={() => {
+                    setFilterStaff('all');
+                  }}
+                >
+                  <div className="ap-chip-avatar" style={{ background: '#8a7050' }}>
+                    All
+                  </div>
+                  <div>
+                    <div className="ap-chip-name">All Staff</div>
+                  </div>
                   <span className="ap-chip-count">{appointments.length}</span>
                 </div>
                 {staffLoading ? (
-                  <div style={{ padding: "10px 12px", fontSize: 11, color: "#8a7560" }}>Loading staff…</div>
-                ) : staffList.length === 0 ? (
-                  <div style={{ padding: "10px 12px", fontSize: 11, color: "#8a7560" }}>No active staff found.</div>
-                ) : staffList.map(s => (
-                  <div key={s.id}
-                    className={`ap-staff-chip${filterStaff===s.id?" active":""}`}
-                    onClick={() => { setFilterStaff(filterStaff===s.id?"all":s.id); }}>
-                    <div className="ap-chip-avatar" style={{ background:s.color }}>{s.initials}</div>
-                    <div>
-                      <div className="ap-chip-name">{s.name}</div>
-                      <div className="ap-chip-spec">{s.speciality}</div>
-                    </div>
-                    <span className="ap-chip-count">
-                      {appointments.filter(a=>a.staff===s.id).length}
-                    </span>
+                  <div style={{ padding: '10px 12px', fontSize: 11, color: '#8a7560' }}>
+                    Loading staff…
                   </div>
-                ))}
+                ) : staffList.length === 0 ? (
+                  <div style={{ padding: '10px 12px', fontSize: 11, color: '#8a7560' }}>
+                    No active staff found.
+                  </div>
+                ) : (
+                  staffList.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`ap-staff-chip${filterStaff === s.id ? ' active' : ''}`}
+                      onClick={() => {
+                        setFilterStaff(filterStaff === s.id ? 'all' : s.id);
+                      }}
+                    >
+                      <div className="ap-chip-avatar" style={{ background: s.color }}>
+                        {s.initials}
+                      </div>
+                      <div>
+                        <div className="ap-chip-name">{s.name}</div>
+                        <div className="ap-chip-spec">{s.speciality}</div>
+                      </div>
+                      <span className="ap-chip-count">
+                        {appointments.filter((a) => a.staff === s.id).length}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </aside>
 
           {/* ── Right ── */}
           <div className="ap-right">
-            {loading && <div className="ap-loading"><div className="ap-spinner"/></div>}
+            {loading && (
+              <div className="ap-loading">
+                <div className="ap-spinner" />
+              </div>
+            )}
 
             {/* Toolbar */}
             <div className="ap-toolbar">
               <div className="ap-selected-date">
-                {new Date(selectedDate + "T00:00:00").toLocaleDateString("en-IN", {
-                  weekday:"long", day:"numeric", month:"long"
+                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
                 })}
               </div>
               <div className="ap-search-wrap">
-                <span className="ap-search-icon"><Ic n="search" s={14}/></span>
-                <input className="ap-search-input" placeholder="Search customer or service…"
-                  value={search} onChange={e => { setSearch(e.target.value); }}/>
+                <span className="ap-search-icon">
+                  <Ic n="search" s={14} />
+                </span>
+                <input
+                  className="ap-search-input"
+                  placeholder="Search customer or service…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                  }}
+                />
               </div>
-              <select className="ap-select" value={filterStatus}
-                onChange={e => { setFilterStatus(e.target.value as Status|"all"); }}>
+              <select
+                className="ap-select"
+                value={filterStatus}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value as Status | 'all');
+                }}
+              >
                 <option value="all">All statuses</option>
-                {(Object.keys(STATUS_CFG) as Status[]).map(s => (
-                  <option key={s} value={s}>{STATUS_CFG[s].label}</option>
+                {(Object.keys(STATUS_CFG) as Status[]).map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_CFG[s].label}
+                  </option>
                 ))}
               </select>
             </div>
 
             {/* Calendar view */}
-            {view === "calendar" && (
-              <div className="ap-cal-view"
-                style={{ "--staff-col-count": Math.max(staffList.length, 1) } as React.CSSProperties}>
-                <div style={{ gridColumn:"1/2", borderBottom:"1px solid #ede5d6", background:"#fff", position:"sticky", top:0, zIndex:2 }}/>
-                {staffList.map(s => (
+            {view === 'calendar' && (
+              <div
+                className="ap-cal-view"
+                style={
+                  { '--staff-col-count': Math.max(staffList.length, 1) } as React.CSSProperties
+                }
+              >
+                <div
+                  style={{
+                    gridColumn: '1/2',
+                    borderBottom: '1px solid #ede5d6',
+                    background: '#fff',
+                    position: 'sticky',
+                    top: 0,
+                    zIndex: 2,
+                  }}
+                />
+                {staffList.map((s) => (
                   <div key={s.id} className="ap-staff-col-header">
-                    <div className="ap-col-avatar" style={{ background:s.color }}>{s.initials}</div>
+                    <div className="ap-col-avatar" style={{ background: s.color }}>
+                      {s.initials}
+                    </div>
                     {s.name}
                   </div>
                 ))}
-                {TIME_SLOTS.map(slot => (
+                {TIME_SLOTS.map((slot) => (
                   <Fragment key={slot}>
-                    <div key={`lbl-${slot}`} className="ap-time-label">{fmtTime12(slot)}</div>
-                   {staffList.map(s => {
-                      const appts = dayAppointments.filter(a => a.staff === s.id && a.time.slice(0, 5) === slot);
+                    <div key={`lbl-${slot}`} className="ap-time-label">
+                      {fmtTime12(slot)}
+                    </div>
+                    {staffList.map((s) => {
+                      const appts = dayAppointments.filter(
+                        (a) => a.staff === s.id && a.time.slice(0, 5) === slot,
+                      );
                       return (
-                        <div key={`${slot}-${s.id}`} className="ap-time-slot-cell"
-                          style={{ borderLeft:"1px solid #f0e8d8" }}
-                          onClick={() => { openNew(false); }}>
-                          {appts.map(a => {
+                        <div
+                          key={`${slot}-${s.id}`}
+                          className="ap-time-slot-cell"
+                          style={{ borderLeft: '1px solid #f0e8d8' }}
+                          onClick={() => {
+                            openNew(false);
+                          }}
+                        >
+                          {appts.map((a) => {
                             const sc = STATUS_CFG[a.status];
                             return (
-                              <div key={a._id} className="ap-appt-block"
-                                style={{ background:sc.bg, borderLeftColor:sc.dot }}
-                                onClick={e => { e.stopPropagation(); openEdit(a); }}>
+                              <div
+                                key={a._id}
+                                className="ap-appt-block"
+                                style={{ background: sc.bg, borderLeftColor: sc.dot }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEdit(a);
+                                }}
+                              >
                                 <div className="ap-appt-block-name">{a.customer}</div>
                                 <div className="ap-appt-block-svc">{a.service}</div>
-                                {a.isWalkIn && <div className="ap-walkin-tag"><Ic n="walkin" s={9}/>Walk-in</div>}
+                                {a.isWalkIn && (
+                                  <div className="ap-walkin-tag">
+                                    <Ic n="walkin" s={9} />
+                                    Walk-in
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -1172,75 +1487,140 @@ const dateStr = `${String(calYear)}-${String(calMonth+1).padStart(2,"0")}-${Stri
             )}
 
             {/* List view */}
-            {view === "list" && (
+            {view === 'list' && (
               <div className="ap-list-view">
                 {dayAppointments.length === 0 && !loading ? (
                   <div className="ap-list-empty">
-                    <div className="ap-list-empty-icon"><Ic n="calendar" s={48}/></div>
+                    <div className="ap-list-empty-icon">
+                      <Ic n="calendar" s={48} />
+                    </div>
                     <div className="ap-list-empty-text">No appointments for this day</div>
-                    <button className="ap-btn ap-btn-primary" onClick={() => { openNew(false); }}>
-                      <Ic n="plus" s={14}/> Book Appointment
+                    <button
+                      className="ap-btn ap-btn-primary"
+                      onClick={() => {
+                        openNew(false);
+                      }}
+                    >
+                      <Ic n="plus" s={14} /> Book Appointment
                     </button>
                   </div>
                 ) : (
-                  dayAppointments.map(a => {
-                    const sc  = STATUS_CFG[a.status];
+                  dayAppointments.map((a) => {
+                    const sc = STATUS_CFG[a.status];
                     const stf = staffOf(a.staff);
-                    const [hh = "0", mm = "00"] = a.time.split(":");
-const h = parseInt(hh, 10);
-const ampm = h >= 12 ? "PM" : "AM";
-const h12 = h > 12 ? h - 12 : h || 12;
+                    const [hh = '0', mm = '00'] = a.time.split(':');
+                    const h = parseInt(hh, 10);
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h > 12 ? h - 12 : h || 12;
                     return (
                       <div key={a._id} className="ap-list-item">
                         <div className="ap-list-time">
                           {h12}:{mm}
                           <span className="ap-list-time-ampm">{ampm}</span>
                         </div>
-                        <div className="ap-list-vdivider"/>
+                        <div className="ap-list-vdivider" />
                         <div className="ap-list-info">
                           <div className="ap-list-name">
                             {a.customer}
                             {a.isWalkIn && (
-                              <span style={{ marginLeft:8, fontSize:9, background:"#faeeda", color:"#633806",
-                                border:"1px solid #f0d5b0", padding:"1px 7px", borderRadius:20,
-                                fontWeight:500, letterSpacing:"0.08em", textTransform:"uppercase" }}>Walk-in</span>
+                              <span
+                                style={{
+                                  marginLeft: 8,
+                                  fontSize: 9,
+                                  background: '#faeeda',
+                                  color: '#633806',
+                                  border: '1px solid #f0d5b0',
+                                  padding: '1px 7px',
+                                  borderRadius: 20,
+                                  fontWeight: 500,
+                                  letterSpacing: '0.08em',
+                                  textTransform: 'uppercase',
+                                }}
+                              >
+                                Walk-in
+                              </span>
                             )}
                           </div>
-                          <div className="ap-list-svc">{a.service} · {a.duration} min</div>
+                          <div className="ap-list-svc">
+                            {a.service} · {a.duration} min
+                          </div>
                           <div className="ap-list-meta">
                             {stf && (
                               <span className="ap-list-staff">
-                                <span className="ap-list-staff-dot" style={{ background:stf.color }}/>
+                                <span
+                                  className="ap-list-staff-dot"
+                                  style={{ background: stf.color }}
+                                />
                                 {stf.name}
                               </span>
                             )}
                             {a.phone && (
-                              <span className="ap-list-phone"><Ic n="phone" s={10}/>{a.phone}</span>
+                              <span className="ap-list-phone">
+                                <Ic n="phone" s={10} />
+                                {a.phone}
+                              </span>
                             )}
                           </div>
                         </div>
-                        <span className="ap-status-badge" style={{ background:sc.bg, color:sc.color }}>
-                          <span className="ap-status-dot" style={{ background:sc.dot }}/>
+                        <span
+                          className="ap-status-badge"
+                          style={{ background: sc.bg, color: sc.color }}
+                        >
+                          <span className="ap-status-dot" style={{ background: sc.dot }} />
                           {sc.label}
                         </span>
                         <div className="ap-list-actions">
-  <select className="ap-status-select" value={a.status}
-    disabled={a.status === "billed"}
-    title={a.status === "billed" ? "Billed appointments can't be changed" : undefined}
-    onChange={e => { void updateStatus(a._id, e.target.value as Status); }}
-    onClick={e => { e.stopPropagation(); }}>
-    {(Object.keys(STATUS_CFG) as Status[]).map(s => (
-      <option key={s} value={s}>{STATUS_CFG[s].label}</option>
-    ))}
-  </select>
-                          {a.status === "completed" && (
-  <button className="ap-icon-btn" title="Generate Bill"
-    onClick={() => { void navigate(`/billing?appointmentId=${a._id}`); }}>
-    <Ic n="check" s={13}/>
-  </button>
-)}
-                         <button className="ap-icon-btn" onClick={() => { openEdit(a); }} title="Edit"><Ic n="edit" s={13}/></button>
-                          <button className="ap-icon-btn danger" onClick={() => { void deleteAppt(a._id); }} title="Delete"><Ic n="trash" s={13}/></button>
+                          <select
+                            className="ap-status-select"
+                            value={a.status}
+                            disabled={a.status === 'billed'}
+                            title={
+                              a.status === 'billed'
+                                ? "Billed appointments can't be changed"
+                                : undefined
+                            }
+                            onChange={(e) => {
+                              void updateStatus(a._id, e.target.value as Status);
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                          >
+                            {(Object.keys(STATUS_CFG) as Status[]).map((s) => (
+                              <option key={s} value={s}>
+                                {STATUS_CFG[s].label}
+                              </option>
+                            ))}
+                          </select>
+                          {a.status === 'completed' && (
+                            <button
+                              className="ap-icon-btn"
+                              title="Generate Bill"
+                              onClick={() => {
+                                void navigate(`/billing?appointmentId=${a._id}`);
+                              }}
+                            >
+                              <Ic n="check" s={13} />
+                            </button>
+                          )}
+                          <button
+                            className="ap-icon-btn"
+                            onClick={() => {
+                              openEdit(a);
+                            }}
+                            title="Edit"
+                          >
+                            <Ic n="edit" s={13} />
+                          </button>
+                          <button
+                            className="ap-icon-btn danger"
+                            onClick={() => {
+                              void deleteAppt(a._id);
+                            }}
+                            title="Delete"
+                          >
+                            <Ic n="trash" s={13} />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1254,134 +1634,225 @@ const h12 = h > 12 ? h - 12 : h || 12;
         {/* ── Modal ── */}
         {showModal && (
           <div className="ap-overlay" onClick={closeModal}>
-            <div className="ap-modal" onClick={e => { e.stopPropagation(); }}>
+            <div
+              className="ap-modal"
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
               <div className="ap-modal-header">
                 <div>
                   <div className="ap-modal-title">
-                    {editingId ? "Edit Appointment" : form.isWalkIn ? "Walk-in Entry" : "New Booking"}
+                    {editingId
+                      ? 'Edit Appointment'
+                      : form.isWalkIn
+                        ? 'Walk-in Entry'
+                        : 'New Booking'}
                   </div>
                   <div className="ap-modal-sub">
-                    {editingId ? "Update appointment details"
-                      : form.isWalkIn ? "Quick entry for walk-in customer"
-                      : "Schedule a new appointment"}
+                    {editingId
+                      ? 'Update appointment details'
+                      : form.isWalkIn
+                        ? 'Quick entry for walk-in customer'
+                        : 'Schedule a new appointment'}
                   </div>
                 </div>
-                <button className="ap-modal-close" onClick={closeModal}><Ic n="x" s={14}/></button>
+                <button className="ap-modal-close" onClick={closeModal}>
+                  <Ic n="x" s={14} />
+                </button>
               </div>
 
               <div className="ap-modal-body">
                 {/* Walk-in toggle */}
                 {!editingId && (
-                  <div className={`ap-walkin-toggle${form.isWalkIn?" on":""}`}
-                    onClick={() => { setForm(f => ({ ...f, isWalkIn:!f.isWalkIn,
-                      customer: !f.isWalkIn ? "Walk-in Guest" : "" })); }}>
+                  <div
+                    className={`ap-walkin-toggle${form.isWalkIn ? ' on' : ''}`}
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        isWalkIn: !f.isWalkIn,
+                        customer: !f.isWalkIn ? 'Walk-in Guest' : '',
+                      }));
+                    }}
+                  >
                     <div>
                       <div className="ap-walkin-toggle-label">Walk-in Customer</div>
                       <div className="ap-walkin-toggle-sub">No advance booking required</div>
                     </div>
-                    <div className={`ap-toggle-switch${form.isWalkIn?" on":""}`}>
-                      <div className="ap-toggle-knob"/>
+                    <div className={`ap-toggle-switch${form.isWalkIn ? ' on' : ''}`}>
+                      <div className="ap-toggle-knob" />
                     </div>
                   </div>
                 )}
 
                 <div className="ap-form-field">
                   <label className="ap-form-label">Customer Name</label>
-                  <input className="ap-form-input" placeholder="Full name"
-                    value={form.customer} disabled={form.isWalkIn}
-                    onChange={e => { setForm(f => ({ ...f, customer:e.target.value })); }}/>
+                  <input
+                    className="ap-form-input"
+                    placeholder="Full name"
+                    value={form.customer}
+                    disabled={form.isWalkIn}
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, customer: e.target.value }));
+                    }}
+                  />
                 </div>
 
-               {!form.isWalkIn && (
+                {!form.isWalkIn && (
                   <div className="ap-form-field">
                     <label className="ap-form-label">
                       Mobile Number
                       {customerLookupLoading && (
-                        <span style={{ marginLeft: 8, fontSize: 10, color: "#8a7560", textTransform: "none", letterSpacing: 0 }}>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 10,
+                            color: '#8a7560',
+                            textTransform: 'none',
+                            letterSpacing: 0,
+                          }}
+                        >
                           looking up…
                         </span>
                       )}
                       {!customerLookupLoading && customerNotFound && (
-                        <span style={{ marginLeft: 8, fontSize: 10, color: "#a32d2d", textTransform: "none", letterSpacing: 0 }}>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 10,
+                            color: '#a32d2d',
+                            textTransform: 'none',
+                            letterSpacing: 0,
+                          }}
+                        >
                           No customer found
                         </span>
                       )}
                     </label>
-                    <input className="ap-form-input" placeholder="10-digit mobile number"
+                    <input
+                      className="ap-form-input"
+                      placeholder="10-digit mobile number"
                       value={form.phone}
-                      onChange={e => { setForm(f => ({ ...f, phone:e.target.value })); }}/>
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, phone: e.target.value }));
+                      }}
+                    />
                   </div>
                 )}
 
                 <div className="ap-form-row">
-                 <div className="ap-form-field">
-  <label className="ap-form-label">Service</label>
-  <select className="ap-form-select" value={form.service}
-    onChange={e => {
-      const selected = SERVICES_CAT.find(s => s.name === e.target.value);
-      setForm(f => ({
-        ...f,
-        service: e.target.value,
-        duration: selected ? selected.duration : f.duration,
-      }));
-    }}>
-    <option value="">Select service</option>
-    {SERVICES_CAT.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-  </select>
-</div>
+                  <div className="ap-form-field">
+                    <label className="ap-form-label">Service</label>
+                    <select
+                      className="ap-form-select"
+                      value={form.service}
+                      onChange={(e) => {
+                        const selected = SERVICES_CAT.find((s) => s.name === e.target.value);
+                        setForm((f) => ({
+                          ...f,
+                          service: e.target.value,
+                          duration: selected ? selected.duration : f.duration,
+                        }));
+                      }}
+                    >
+                      <option value="">Select service</option>
+                      {SERVICES_CAT.map((s) => (
+                        <option key={s.id} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="ap-form-field">
                     <label className="ap-form-label">Duration (min)</label>
-                    <select className="ap-form-select" value={form.duration}
-                      onChange={e => { setForm(f => ({ ...f, duration:Number(e.target.value) })); }}>
-                      {[15,30,45,60,75,90,120].map(d => <option key={d} value={d}>{d} min</option>)}
+                    <select
+                      className="ap-form-select"
+                      value={form.duration}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, duration: Number(e.target.value) }));
+                      }}
+                    >
+                      {[15, 30, 45, 60, 75, 90, 120].map((d) => (
+                        <option key={d} value={d}>
+                          {d} min
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
 
-                                <div className="ap-form-row">
+                <div className="ap-form-row">
                   <div className="ap-form-field">
                     <label className="ap-form-label">Date</label>
-                    <input type="date" className="ap-form-input" value={form.date}
-                      onChange={e => { setForm(f => ({ ...f, date:e.target.value })); }}/>
+                    <input
+                      type="date"
+                      className="ap-form-input"
+                      value={form.date}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, date: e.target.value }));
+                      }}
+                    />
                   </div>
                   <div className="ap-form-field">
                     <label className="ap-form-label">
                       Time
                       {modalSlotsLoading && (
-                        <span style={{ marginLeft: 8, fontSize: 10, color: "#8a7560", textTransform: "none", letterSpacing: 0 }}>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 10,
+                            color: '#8a7560',
+                            textTransform: 'none',
+                            letterSpacing: 0,
+                          }}
+                        >
                           checking availability…
                         </span>
                       )}
                     </label>
-                    <select className="ap-form-select" value={form.time}
-  onChange={e => { setForm(f => ({ ...f, time:e.target.value })); }}>
-  {getAvailableSlots(form.date).map(t => {
-    const isBooked = modalBookedTimes.includes(t);
-    return (
-      <option key={t} value={t} disabled={isBooked}>
-        {fmtTime12(t)}{isBooked ? " (booked)" : ""}
-      </option>
-    );
-  })}
-</select>
+                    <select
+                      className="ap-form-select"
+                      value={form.time}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, time: e.target.value }));
+                      }}
+                    >
+                      {getAvailableSlots(form.date).map((t) => {
+                        const isBooked = modalBookedTimes.includes(t);
+                        return (
+                          <option key={t} value={t} disabled={isBooked}>
+                            {fmtTime12(t)}
+                            {isBooked ? ' (booked)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
                   </div>
                 </div>
 
                 <div className="ap-form-field">
                   <label className="ap-form-label">Assign Staff</label>
                   {staffLoading ? (
-                    <div style={{ fontSize: 12, color: "#8a7560", padding: "8px 0" }}>Loading staff…</div>
+                    <div style={{ fontSize: 12, color: '#8a7560', padding: '8px 0' }}>
+                      Loading staff…
+                    </div>
                   ) : staffList.length === 0 ? (
-                    <div style={{ fontSize: 12, color: "#8a7560", padding: "8px 0" }}>
+                    <div style={{ fontSize: 12, color: '#8a7560', padding: '8px 0' }}>
                       No active staff available. Add staff in Staff &amp; Roles first.
                     </div>
                   ) : (
                     <div className="ap-staff-grid">
-                      {staffList.map(s => (
-                        <div key={s.id}
-                          className={`ap-staff-option${form.staff===s.id?" selected":""}`}
-                          onClick={() => { setForm(f => ({ ...f, staff:s.id })); }}>
-                          <div className="ap-staff-opt-avatar" style={{ background:s.color }}>{s.initials}</div>
+                      {staffList.map((s) => (
+                        <div
+                          key={s.id}
+                          className={`ap-staff-option${form.staff === s.id ? ' selected' : ''}`}
+                          onClick={() => {
+                            setForm((f) => ({ ...f, staff: s.id }));
+                          }}
+                        >
+                          <div className="ap-staff-opt-avatar" style={{ background: s.color }}>
+                            {s.initials}
+                          </div>
                           <div>
                             <div className="ap-staff-opt-name">{s.name}</div>
                             <div className="ap-staff-opt-spec">{s.speciality}</div>
@@ -1394,23 +1865,64 @@ const h12 = h > 12 ? h - 12 : h || 12;
 
                 <div className="ap-form-field">
                   <label className="ap-form-label">Notes (optional)</label>
-                  <textarea className="ap-form-textarea" placeholder="Allergies, preferences, special instructions…"
+                  <textarea
+                    className="ap-form-textarea"
+                    placeholder="Allergies, preferences, special instructions…"
                     value={form.notes}
-                    onChange={e => { setForm(f => ({ ...f, notes:e.target.value })); }}/>
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, notes: e.target.value }));
+                    }}
+                  />
                 </div>
 
                 {!form.isWalkIn && form.phone && (
                   <div className="ap-whatsapp-section">
-                    <span className="ap-wa-icon"><Ic n="whatsapp" s={18}/></span>
+                    <span className="ap-wa-icon">
+                      <Ic n="whatsapp" s={18} />
+                    </span>
                     <div className="ap-wa-text">Send WhatsApp confirmation to {form.phone}</div>
-                    <button className="ap-wa-btn">Send</button>
+                    <button
+                      type="button"
+                      className="ap-wa-btn"
+                      onClick={() => {
+                        const ok = openWhatsAppConfirmation(
+                          form.phone,
+                          form.customer,
+                          form.service,
+                          form.date,
+                          form.time,
+                          staffNameById.get(form.staff) ?? '',
+                        );
+                        if (!ok)
+                          setApiError(
+                            'Enter a valid 10-digit mobile number to send WhatsApp confirmation.',
+                          );
+                      }}
+                    >
+                      Send
+                    </button>
                   </div>
                 )}
 
                 <div className="ap-modal-footer">
-                  <button className="ap-btn ap-btn-secondary ap-btn-full" onClick={closeModal}>Cancel</button>
-                  <button className="ap-btn ap-btn-primary ap-btn-full" onClick={() => { void saveAppointment(); }} disabled={saving}>
-                    {saving ? "Saving…" : <><Ic n="check" s={14}/>{editingId ? "Save Changes" : "Confirm Booking"}</>}
+                  <button className="ap-btn ap-btn-secondary ap-btn-full" onClick={closeModal}>
+                    Cancel
+                  </button>
+                  <button
+                    className="ap-btn ap-btn-primary ap-btn-full"
+                    onClick={() => {
+                      void saveAppointment();
+                    }}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      'Saving…'
+                    ) : (
+                      <>
+                        <Ic n="check" s={14} />
+                        {editingId ? 'Save Changes' : 'Confirm Booking'}
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

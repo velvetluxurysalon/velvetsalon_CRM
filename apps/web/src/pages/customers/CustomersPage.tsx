@@ -1,42 +1,64 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import * as XLSX from "xlsx";
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
-type MembershipTier = "none" | "silver" | "gold" | "platinum";
-type CustomerTab = "overview" | "visits" | "services" | "loyalty" | "membership" | "referrals";
+type MembershipTier = 'none' | 'silver' | 'gold' | 'platinum';
+type CustomerTab = 'overview' | 'visits' | 'services' | 'loyalty' | 'membership' | 'referrals';
 
 interface Visit {
-  _id: string; date: string; services: string[]; staff: string; total: number; notes: string;
+  _id: string;
+  date: string;
+  services: string[];
+  staff: string;
+  total: number;
+  notes: string;
 }
 interface ServiceRecord {
-  _id: string; date: string; service: string; staff: string; duration: number; price: number; rating?: number;
+  _id: string;
+  date: string;
+  service: string;
+  staff: string;
+  duration: number;
+  price: number;
+  rating?: number;
 }
 interface Referral {
-  _id: string; referredName: string; referredPhone: string; date: string;
-  status: "pending" | "converted" | "credited"; reward: number;
+  _id: string;
+  referredName: string;
+  referredPhone: string;
+  date: string;
+  status: 'pending' | 'converted' | 'credited';
+  reward: number;
 }
 interface Customer {
-  _id: string; name: string; phone: string; email: string; dob: string;
+  _id: string;
+  name: string;
+  phone: string;
+  email: string;
+  dob: string;
   anniversary: string;
-  gender: "male" | "female" | "other"; joinDate: string; loyaltyPoints?: number;
-  membershipTier: MembershipTier; membershipExpiry: string;
+  gender: 'male' | 'female' | 'other';
+  joinDate: string;
+  loyaltyPoints?: number;
+  membershipTier: MembershipTier;
+  membershipExpiry: string;
   visitCount?: number;
   totalSpent?: number;
-  referralCode: string; referredBy: string; referredByCode: string;
-  tags?: string[]; notes: string; visits?: Visit[]; services?: ServiceRecord[];
-  referrals?: Referral[]; lastVisit: string;
+  referralCode: string;
+  referredBy: string;
+  referredByCode: string;
+  tags?: string[];
+  notes: string;
+  visits?: Visit[];
+  services?: ServiceRecord[];
+  referrals?: Referral[];
+  lastVisit: string;
 }
 
 // ── Staff member as returned by /api/staff-roles ────────────────────────────
-type StaffRole =
-  | "admin"
-  | "manager"
-  | "senior_stylist"
-  | "stylist"
-  | "receptionist"
-  | "support";
+type StaffRole = 'admin' | 'manager' | 'senior_stylist' | 'stylist' | 'receptionist' | 'support';
 
-type StaffStatus = "active" | "on_leave" | "inactive";
+type StaffStatus = 'active' | 'on_leave' | 'inactive';
 
 interface StaffMember {
   _id: string;
@@ -52,109 +74,217 @@ interface StaffMember {
 }
 
 // ─── Static config ─────────────────────────────────────────────────────────────
-const MEMBERSHIP_CFG: Record<MembershipTier, { label: string; color: string; bg: string; icon: string; minSpend: number }> = {
-  none:     { label: "No Membership", color: "#8a7560", bg: "#f5f0e8", icon: "○",  minSpend: 0 },
-  silver:   { label: "Silver",        color: "#6b7280", bg: "#f3f4f6", icon: "◆",  minSpend: 5000 },
-  gold:     { label: "Gold",          color: "#b8860b", bg: "#fefce8", icon: "◆",  minSpend: 15000 },
-  platinum: { label: "Platinum",      color: "#7c3aed", bg: "#f5f3ff", icon: "◆",  minSpend: 40000 },
+const MEMBERSHIP_CFG: Record<
+  MembershipTier,
+  { label: string; color: string; bg: string; icon: string; minSpend: number }
+> = {
+  none: { label: 'No Membership', color: '#8a7560', bg: '#f5f0e8', icon: '○', minSpend: 0 },
+  silver: { label: 'Silver', color: '#6b7280', bg: '#f3f4f6', icon: '◆', minSpend: 5000 },
+  gold: { label: 'Gold', color: '#b8860b', bg: '#fefce8', icon: '◆', minSpend: 15000 },
+  platinum: { label: 'Platinum', color: '#7c3aed', bg: '#f5f3ff', icon: '◆', minSpend: 40000 },
 };
 
-const API_BASE = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ""}/api/customers`;
-const STAFF_API_BASE = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ""}/api/staff-roles`;
+const API_BASE = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''}/api/customers`;
+const STAFF_API_BASE = `${(import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''}/api/staff-roles`;
 const token = (): string => {
   try {
-    const parsed = JSON.parse(localStorage.getItem("velvet_token") ?? "{}") as { token?: string };
-    return parsed.token ?? "";
+    const parsed = JSON.parse(localStorage.getItem('velvet_token') ?? '{}') as { token?: string };
+    return parsed.token ?? '';
   } catch {
-    return "";
+    return '';
   }
 };
-const headers = () => ({ "Content-Type": "application/json", Authorization: `Bearer ${token()}` });
+const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` });
 const todayStr = new Date().toISOString().slice(0, 10);
 
 // ─── SVG Icons ─────────────────────────────────────────────────────────────────
 const Ic = ({ n, s = 16 }: { n: string; s?: number }) => {
   const p: Record<string, string> = {
-    plus:"M12 5v14M5 12h14", search:"M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z",
-    user:"M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
-    phone:"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z",
-    mail:"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6",
-    calendar:"M3 4h18v18H3zM3 10h18M8 2v4M16 2v4",
-    scissors:"M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12",
-    star:"M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
-    gift:"M20 12v10H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
-    award:"M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89L7 23l5-3 5 3-1.21-9.12",
-    users:"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
-    edit:"M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z",
-    trash:"M3 6h18M19 6l-1 14H6L5 6M9 6V4h6v2",
-    x:"M18 6L6 18M6 6l12 12", check:"M20 6L9 17l-5-5",
-    copy:"M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
-    refresh:"M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-    whatsapp:"M12 2a10 10 0 0 1 8.93 14.47L22 22l-5.53-1.07A10 10 0 1 1 12 2z",
-    clock:"M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2",
-    tag:"M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01",
+    plus: 'M12 5v14M5 12h14',
+    search: 'M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z',
+    user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
+    phone:
+      'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z',
+    mail: 'M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6',
+    calendar: 'M3 4h18v18H3zM3 10h18M8 2v4M16 2v4',
+    scissors:
+      'M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12',
+    star: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+    gift: 'M20 12v10H4V12M22 7H2v5h20V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z',
+    award: 'M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89L7 23l5-3 5 3-1.21-9.12',
+    users:
+      'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+    edit: 'M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z',
+    trash: 'M3 6h18M19 6l-1 14H6L5 6M9 6V4h6v2',
+    x: 'M18 6L6 18M6 6l12 12',
+    check: 'M20 6L9 17l-5-5',
+    copy: 'M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+    refresh:
+      'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
+    whatsapp: 'M12 2a10 10 0 0 1 8.93 14.47L22 22l-5.53-1.07A10 10 0 1 1 12 2z',
+    clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2',
+    tag: 'M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01',
   };
   return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      {(p[n] ?? "").split("M").filter(Boolean).map((d, i) => <path key={i} d={`M${d}`}/>)}
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {(p[n] ?? '')
+        .split('M')
+        .filter(Boolean)
+        .map((d, i) => (
+          <path key={i} d={`M${d}`} />
+        ))}
     </svg>
   );
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-const fmtDate = (d: string) => d ? new Date(d.slice(0, 10) + "T00:00:00").toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" }) : "—";
-const fmtCur  = (n: number) => `₹${n.toLocaleString("en-IN")}`;
-const initials = (name: string) => name.split(" ").map(p => p[0]).join("").toUpperCase().slice(0, 2);
+const fmtDate = (d: string) =>
+  d
+    ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : '—';
+const fmtCur = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+const initials = (name: string) =>
+  name
+    .split(' ')
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
 
 // ── Excel export helper ──────────────────────────────────────────────────────
 function downloadCustomersExcel(rows: Customer[], filename: string) {
-  const sheetData = rows.map(c => ({
+  const sheetData = rows.map((c) => ({
     Name: c.name,
     Phone: c.phone,
     Email: c.email,
-    "Date of Birth": c.dob,
+    'Date of Birth': c.dob,
     Anniversary: c.anniversary,
     Gender: c.gender,
-    "Join Date": c.joinDate,
-    "Loyalty Points": c.loyaltyPoints ?? 0,
-    "Membership Tier": MEMBERSHIP_CFG[c.membershipTier].label,
-    "Membership Expiry": c.membershipExpiry,
-    "Visit Count": c.visitCount ?? 0,
-    "Total Spent": c.totalSpent ?? 0,
-    "Referral Code": c.referralCode,
-    "Referred By": c.referredByCode,
-    Tags: (c.tags ?? []).join(", "),
-    "Last Visit": c.lastVisit,
+    'Join Date': c.joinDate,
+    'Loyalty Points': c.loyaltyPoints ?? 0,
+    'Membership Tier': MEMBERSHIP_CFG[c.membershipTier].label,
+    'Membership Expiry': c.membershipExpiry,
+    'Visit Count': c.visitCount ?? 0,
+    'Total Spent': c.totalSpent ?? 0,
+    'Referral Code': c.referralCode,
+    'Referred By': c.referredByCode,
+    Tags: (c.tags ?? []).join(', '),
+    'Last Visit': c.lastVisit,
     Notes: c.notes,
   }));
   const ws = XLSX.utils.json_to_sheet(sheetData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Customers");
+  XLSX.utils.book_append_sheet(wb, ws, 'Customers');
   XLSX.writeFile(wb, filename);
 }
 
 /** Average of all rated (rating != null) service records, rounded to 1 decimal. Returns null if none rated. */
 const avgServiceRating = (services?: ServiceRecord[]): number | null => {
-  const rated = (services ?? []).filter((s): s is ServiceRecord & { rating: number } => s.rating != null);
+  const rated = (services ?? []).filter(
+    (s): s is ServiceRecord & { rating: number } => s.rating != null,
+  );
   if (!rated.length) return null;
   return Math.round((rated.reduce((sum, s) => sum + s.rating, 0) / rated.length) * 10) / 10;
 };
 
-const emptyCustomer = (): Omit<Customer, "_id"|"visits"|"services"|"referrals"|"visitCount"|"totalSpent"|"referralCode"|"referredByCode"|"lastVisit"> & { tags: string[] } => ({
-  name:"", phone:"", email:"", dob:"", anniversary:"", gender:"female",
-  joinDate: todayStr, loyaltyPoints: 0, membershipTier:"none",
-  membershipExpiry:"", referredBy:"", tags:[], notes:"",
+const emptyCustomer = (): Omit<
+  Customer,
+  | '_id'
+  | 'visits'
+  | 'services'
+  | 'referrals'
+  | 'visitCount'
+  | 'totalSpent'
+  | 'referralCode'
+  | 'referredByCode'
+  | 'lastVisit'
+> & { tags: string[] } => ({
+  name: '',
+  phone: '',
+  email: '',
+  dob: '',
+  anniversary: '',
+  gender: 'female',
+  joinDate: todayStr,
+  loyaltyPoints: 0,
+  membershipTier: 'none',
+  membershipExpiry: '',
+  referredBy: '',
+  tags: [],
+  notes: '',
 });
 
 // ─── Avatar ────────────────────────────────────────────────────────────────────
-const Avatar = ({ name, size=40, tier }: { name:string; size?:number; tier?:MembershipTier }) => {
-  const colors: Record<string,string> = { A:"#d4af37",B:"#8a7050",C:"#b8860b",D:"#6b5740",E:"#d4af37" };
-  const col = colors[name[0]?.toUpperCase() ?? "A"] ?? "#8a7050";
+const Avatar = ({
+  name,
+  size = 40,
+  tier,
+}: {
+  name: string;
+  size?: number;
+  tier?: MembershipTier;
+}) => {
+  const colors: Record<string, string> = {
+    A: '#d4af37',
+    B: '#8a7050',
+    C: '#b8860b',
+    D: '#6b5740',
+    E: '#d4af37',
+  };
+  const col = colors[name[0]?.toUpperCase() ?? 'A'] ?? '#8a7050';
   return (
-    <div style={{ width:size, height:size, borderRadius:"50%", background:col, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:size*0.35, fontWeight:500, flexShrink:0, position:"relative", fontFamily:"'Cormorant Garamond',serif", border: tier && tier!=="none" ? `2px solid ${MEMBERSHIP_CFG[tier].color}` : "none" }}>
-      {initials(name || "?")}
-      {tier && tier!=="none" && (
-        <span style={{ position:"absolute", bottom:-2, right:-2, width:14, height:14, borderRadius:"50%", background:MEMBERSHIP_CFG[tier].color, border:"1.5px solid #fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:7, color:"#fff" }}>◆</span>
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: col,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        fontSize: size * 0.35,
+        fontWeight: 500,
+        flexShrink: 0,
+        position: 'relative',
+        fontFamily: "'Cormorant Garamond',serif",
+        border: tier && tier !== 'none' ? `2px solid ${MEMBERSHIP_CFG[tier].color}` : 'none',
+      }}
+    >
+      {initials(name || '?')}
+      {tier && tier !== 'none' && (
+        <span
+          style={{
+            position: 'absolute',
+            bottom: -2,
+            right: -2,
+            width: 14,
+            height: 14,
+            borderRadius: '50%',
+            background: MEMBERSHIP_CFG[tier].color,
+            border: '1.5px solid #fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 7,
+            color: '#fff',
+          }}
+        >
+          ◆
+        </span>
       )}
     </div>
   );
@@ -162,19 +292,32 @@ const Avatar = ({ name, size=40, tier }: { name:string; size?:number; tier?:Memb
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function CustomersPage() {
-  const [customers, setCustomers]   = useState<Customer[]>([]);
-  const [selected, setSelected]     = useState<Customer | null>(null);
-  const [activeTab, setActiveTab]   = useState<CustomerTab>("overview");
-  const [loading, setLoading]       = useState(false);
-  const [saving, setSaving]         = useState(false);
-  const [apiError, setApiError]     = useState("");
-  const [exporting, setExporting]   = useState(false);
-  const [search, setSearch]         = useState("");
-  const [filterTier, setFilterTier] = useState<MembershipTier | "all">("all");
-  const [showModal, setShowModal]   = useState(false);
-  const [editingId, setEditingId]   = useState<string | null>(null);
-  const [form, setForm]             = useState<Omit<Customer, "_id"|"visits"|"services"|"referrals"|"visitCount"|"totalSpent"|"referralCode"|"referredByCode"|"lastVisit"> & { tags: string[] }>(emptyCustomer());
-  const [tagInput, setTagInput]     = useState("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [selected, setSelected] = useState<Customer | null>(null);
+  const [activeTab, setActiveTab] = useState<CustomerTab>('overview');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterTier, setFilterTier] = useState<MembershipTier | 'all'>('all');
+  const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<
+    Omit<
+      Customer,
+      | '_id'
+      | 'visits'
+      | 'services'
+      | 'referrals'
+      | 'visitCount'
+      | 'totalSpent'
+      | 'referralCode'
+      | 'referredByCode'
+      | 'lastVisit'
+    > & { tags: string[] }
+  >(emptyCustomer());
+  const [tagInput, setTagInput] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
 
   // ── Live staff list (fetched from the Staff & Roles backend) ───────────────
@@ -188,10 +331,14 @@ export default function CustomersPage() {
       if (!res.ok) return;
       const data = (await res.json()) as StaffMember[];
       setStaffList(data);
-    } catch { /* non-critical — falls back to raw staff id/value */ }
+    } catch {
+      /* non-critical — falls back to raw staff id/value */
+    }
   }, []);
 
-  useEffect(() => { void fetchStaffList(); }, [fetchStaffList]);
+  useEffect(() => {
+    void fetchStaffList();
+  }, [fetchStaffList]);
 
   // Map of staff _id -> name, plus a fallback for legacy numeric ids ("1","2"…)
   // that may already exist in old visit/service records.
@@ -201,21 +348,27 @@ export default function CustomersPage() {
     return map;
   }, [staffList]);
 
-  const resolveStaffName = useCallback((staffRef: string) => {
-    const key = staffRef.trim();
-    if (!key) return "—";
-    return staffNameById.get(key) ?? key;
-  }, [staffNameById]);
+  const resolveStaffName = useCallback(
+    (staffRef: string) => {
+      const key = staffRef.trim();
+      if (!key) return '—';
+      return staffNameById.get(key) ?? key;
+    },
+    [staffNameById],
+  );
 
   const selectedRef = useRef<Customer | null>(null);
-  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   const fetchCustomers = useCallback(async () => {
-    setLoading(true); setApiError("");
+    setLoading(true);
+    setApiError('');
     try {
       const params = new URLSearchParams();
-      if (search) params.append("q", search);
-      if (filterTier !== "all") params.append("tier", filterTier);
+      if (search) params.append('q', search);
+      if (filterTier !== 'all') params.append('tier', filterTier);
       const res = await fetch(`${API_BASE}?${params}`, { headers: headers() });
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as Customer[];
@@ -226,15 +379,39 @@ export default function CustomersPage() {
           const res2 = await fetch(`${API_BASE}/${currentSelected._id}`, { headers: headers() });
           if (res2.ok) setSelected((await res2.json()) as Customer);
         } catch {
-          const r = data.find(c => c._id === currentSelected._id);
+          const r = data.find((c) => c._id === currentSelected._id);
           if (r) setSelected(r);
         }
       }
-    } catch (e: unknown) { setApiError(e instanceof Error ? e.message : "Failed to load customers."); }
-    finally { setLoading(false); }
+    } catch (e: unknown) {
+      setApiError(e instanceof Error ? e.message : 'Failed to load customers.');
+    } finally {
+      setLoading(false);
+    }
   }, [search, filterTier]);
 
-  useEffect(() => { void fetchCustomers(); }, [fetchCustomers]);
+  useEffect(() => {
+    void fetchCustomers();
+  }, [fetchCustomers]);
+
+  // Billing and Customers are often open in separate browser tabs. Re-fetch when this
+  // tab becomes active again, so bills saved or edited elsewhere show up without a manual Refresh.
+  const lastAutoRefreshRef = useRef(0);
+  useEffect(() => {
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastAutoRefreshRef.current < 1500) return; // visibilitychange and focus often fire together
+      lastAutoRefreshRef.current = now;
+      void fetchCustomers();
+    };
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, [fetchCustomers]);
 
   // ── Export all customers to Excel ────────────────────────────────────────
   const handleExportClick = async () => {
@@ -245,72 +422,131 @@ export default function CustomersPage() {
       const all = (await res.json()) as Customer[];
       downloadCustomersExcel(all, `customers_${todayStr}.xlsx`);
     } catch (e: unknown) {
-      setApiError(e instanceof Error ? e.message : "Failed to export customers.");
+      setApiError(e instanceof Error ? e.message : 'Failed to export customers.');
     } finally {
       setExporting(false);
     }
   };
 
-  const filteredCustomers = useMemo(() =>
-    customers.filter(c =>
-      (!search || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)) &&
-      (filterTier === "all" || c.membershipTier === filterTier)
-    ), [customers, search, filterTier]);
+  const filteredCustomers = useMemo(
+    () =>
+      customers.filter(
+        (c) =>
+          (!search ||
+            c.name.toLowerCase().includes(search.toLowerCase()) ||
+            c.phone.includes(search)) &&
+          (filterTier === 'all' || c.membershipTier === filterTier),
+      ),
+    [customers, search, filterTier],
+  );
 
-  const openNew = () => { setForm(emptyCustomer()); setEditingId(null); setTagInput(""); setShowModal(true); };
-const openEdit = (c: Customer) => {
-  setForm({ name:c.name, phone:c.phone, email:c.email, dob:c.dob, anniversary:c.anniversary, gender:c.gender, joinDate:c.joinDate, loyaltyPoints:c.loyaltyPoints ?? 0, membershipTier:c.membershipTier, membershipExpiry:c.membershipExpiry, referredBy:c.referredByCode, tags:[...(c.tags ?? [])], notes:c.notes });
-  setEditingId(c._id); setTagInput(""); setShowModal(true);
-};
-  const closeModal = () => { setShowModal(false); setEditingId(null); };
+  const openNew = () => {
+    setForm(emptyCustomer());
+    setEditingId(null);
+    setTagInput('');
+    setShowModal(true);
+  };
+  const openEdit = (c: Customer) => {
+    setForm({
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      dob: c.dob,
+      anniversary: c.anniversary,
+      gender: c.gender,
+      joinDate: c.joinDate,
+      loyaltyPoints: c.loyaltyPoints ?? 0,
+      membershipTier: c.membershipTier,
+      membershipExpiry: c.membershipExpiry,
+      referredBy: c.referredByCode,
+      tags: [...(c.tags ?? [])],
+      notes: c.notes,
+    });
+    setEditingId(c._id);
+    setTagInput('');
+    setShowModal(true);
+  };
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingId(null);
+  };
 
   const saveCustomer = async () => {
     if (!form.name || !form.phone) return;
     setSaving(true);
     try {
       if (editingId) {
-        const res = await fetch(`${API_BASE}/${editingId}`, { method:"PUT", headers:headers(), body:JSON.stringify(form) });
+        const res = await fetch(`${API_BASE}/${editingId}`, {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify(form),
+        });
         if (!res.ok) throw new Error(await res.text());
         const updated = (await res.json()) as Customer;
-        setCustomers(prev => prev.map(c => c._id === editingId ? updated : c));
+        setCustomers((prev) => prev.map((c) => (c._id === editingId ? updated : c)));
         if (selected?._id === editingId) setSelected(updated);
       } else {
-        const res = await fetch(API_BASE, { method:"POST", headers:headers(), body:JSON.stringify(form) });
+        const res = await fetch(API_BASE, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify(form),
+        });
         if (!res.ok) throw new Error(await res.text());
         const created = (await res.json()) as Customer;
-        setCustomers(prev => [created, ...prev]);
+        setCustomers((prev) => [created, ...prev]);
         setSelected(created);
       }
       closeModal();
-    } catch (e: unknown) { setApiError(e instanceof Error ? e.message : "Failed to save."); }
-    finally { setSaving(false); }
+    } catch (e: unknown) {
+      setApiError(e instanceof Error ? e.message : 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const deleteCustomer = async (id: string) => {
-    if (!confirm("Delete this customer? This cannot be undone.")) return;
+    if (!confirm('Delete this customer? This cannot be undone.')) return;
     try {
-      const res = await fetch(`${API_BASE}/${id}`, { method:"DELETE", headers:headers() });
+      const res = await fetch(`${API_BASE}/${id}`, { method: 'DELETE', headers: headers() });
       if (!res.ok) throw new Error(await res.text());
-      setCustomers(prev => prev.filter(c => c._id !== id));
+      setCustomers((prev) => prev.filter((c) => c._id !== id));
       if (selected?._id === id) setSelected(null);
-    } catch (e: unknown) { setApiError(e instanceof Error ? e.message : "Failed to delete."); }
+    } catch (e: unknown) {
+      setApiError(e instanceof Error ? e.message : 'Failed to delete.');
+    }
   };
 
-  const addTag = () => { const t = tagInput.trim(); if (t && !form.tags.includes(t)) { setForm(f => ({ ...f, tags:[...f.tags, t] })); setTagInput(""); } };
-  const removeTag = (t: string) => { setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) })); };
+  const addTag = () => {
+    const t = tagInput.trim();
+    if (t && !form.tags.includes(t)) {
+      setForm((f) => ({ ...f, tags: [...f.tags, t] }));
+      setTagInput('');
+    }
+  };
+  const removeTag = (t: string) => {
+    setForm((f) => ({ ...f, tags: f.tags.filter((x) => x !== t) }));
+  };
   const copyReferralCode = (code: string) => {
-    navigator.clipboard.writeText(code)
-      .then(() => { setCopiedCode(true); setTimeout(() => { setCopiedCode(false); }, 2000); })
-      .catch(() => { /* clipboard write failed — ignore */ });
+    navigator.clipboard
+      .writeText(code)
+      .then(() => {
+        setCopiedCode(true);
+        setTimeout(() => {
+          setCopiedCode(false);
+        }, 2000);
+      })
+      .catch(() => {
+        /* clipboard write failed — ignore */
+      });
   };
 
   const TAB_CFG: { id: CustomerTab; label: string; icon: string }[] = [
-    { id:"overview",   label:"Overview",   icon:"user" },
-    { id:"visits",     label:"Visits",     icon:"calendar" },
-    { id:"services",   label:"Services",   icon:"scissors" },
-    { id:"loyalty",    label:"Loyalty",    icon:"star" },
-    { id:"membership", label:"Membership", icon:"award" },
-    { id:"referrals",  label:"Referrals",  icon:"users" },
+    { id: 'overview', label: 'Overview', icon: 'user' },
+    { id: 'visits', label: 'Visits', icon: 'calendar' },
+    { id: 'services', label: 'Services', icon: 'scissors' },
+    { id: 'loyalty', label: 'Loyalty', icon: 'star' },
+    { id: 'membership', label: 'Membership', icon: 'award' },
+    { id: 'referrals', label: 'Referrals', icon: 'users' },
   ];
 
   // Average customer rating across this customer's rated service records
@@ -560,18 +796,47 @@ const openEdit = (c: Customer) => {
         <header className="cm-topbar">
           <div className="cm-page-title">Customers</div>
           <div className="cm-topbar-right">
-            <button className="cm-btn cm-btn-secondary cm-btn-sm" onClick={() => { void fetchCustomers(); }}><Ic n="refresh" s={13}/> Refresh</button>
-            <button className="cm-btn cm-btn-secondary cm-btn-sm" onClick={() => { void handleExportClick(); }} disabled={exporting} title="Download all customers as Excel">
-              {exporting ? "Exporting…" : <><Ic n="copy" s={13}/> Export Excel</>}
+            <button
+              className="cm-btn cm-btn-secondary cm-btn-sm"
+              onClick={() => {
+                void fetchCustomers();
+              }}
+            >
+              <Ic n="refresh" s={13} /> Refresh
             </button>
-            <button className="cm-btn cm-btn-primary" onClick={openNew}><Ic n="plus" s={14}/> Add Customer</button>
+            <button
+              className="cm-btn cm-btn-secondary cm-btn-sm"
+              onClick={() => {
+                void handleExportClick();
+              }}
+              disabled={exporting}
+              title="Download all customers as Excel"
+            >
+              {exporting ? (
+                'Exporting…'
+              ) : (
+                <>
+                  <Ic n="copy" s={13} /> Export Excel
+                </>
+              )}
+            </button>
+            <button className="cm-btn cm-btn-primary" onClick={openNew}>
+              <Ic n="plus" s={14} /> Add Customer
+            </button>
           </div>
         </header>
 
         {apiError && (
           <div className="cm-error-banner">
             ⚠ {apiError}
-            <button className="cm-error-close" onClick={() => { setApiError(""); }}><Ic n="x" s={14}/></button>
+            <button
+              className="cm-error-close"
+              onClick={() => {
+                setApiError('');
+              }}
+            >
+              <Ic n="x" s={14} />
+            </button>
           </div>
         )}
 
@@ -580,56 +845,109 @@ const openEdit = (c: Customer) => {
           <aside className="cm-list-panel">
             <div className="cm-list-toolbar">
               <div className="cm-search-wrap">
-                <span className="cm-search-icon"><Ic n="search" s={14}/></span>
-                <input className="cm-search-input" placeholder="Search name or phone…" value={search} onChange={e => { setSearch(e.target.value); }}/>
+                <span className="cm-search-icon">
+                  <Ic n="search" s={14} />
+                </span>
+                <input
+                  className="cm-search-input"
+                  placeholder="Search name or phone…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                  }}
+                />
               </div>
               <div className="cm-tier-filters">
-                {(["all","none","silver","gold","platinum"] as const).map(t => (
-                  <button key={t} className={`cm-tier-chip${filterTier===t?" active":""}`} onClick={() => { setFilterTier(t); }}>
-{t!=="all" && <span className="cm-tier-chip-dot" style={{ background:MEMBERSHIP_CFG[t as MembershipTier].color }}/>}
-                    {t==="all" ? "All" : MEMBERSHIP_CFG[t as MembershipTier].label}
+                {(['all', 'none', 'silver', 'gold', 'platinum'] as const).map((t) => (
+                  <button
+                    key={t}
+                    className={`cm-tier-chip${filterTier === t ? ' active' : ''}`}
+                    onClick={() => {
+                      setFilterTier(t);
+                    }}
+                  >
+                    {t !== 'all' && (
+                      <span
+                        className="cm-tier-chip-dot"
+                        style={{ background: MEMBERSHIP_CFG[t as MembershipTier].color }}
+                      />
+                    )}
+                    {t === 'all' ? 'All' : MEMBERSHIP_CFG[t as MembershipTier].label}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="cm-list-count">{filteredCustomers.length} customer{filteredCustomers.length!==1?"s":""}</div>
+            <div className="cm-list-count">
+              {filteredCustomers.length} customer{filteredCustomers.length !== 1 ? 's' : ''}
+            </div>
             <div className="cm-list-scroll">
               {loading ? (
-                <div className="cm-loading-row"><div className="cm-spinner"/></div>
-              ) : filteredCustomers.length===0 ? (
-                <div className="cm-list-empty"><Ic n="users" s={36}/><div style={{ fontSize:13,fontWeight:300 }}>No customers found</div></div>
-              ) : filteredCustomers.map(c => {
-                const mc = MEMBERSHIP_CFG[c.membershipTier];
-                return (
-                  <div key={c._id} className={`cm-list-item${selected?._id===c._id?" active":""}`} onClick={() => {
-  void (async () => {
-    setActiveTab("overview");
-    // Set basic info immediately for fast UI response
-    setSelected(c);
-    // Then fetch full detail including visits/services/referrals
-    try {
-      const res = await fetch(`${API_BASE}/${c._id}`, { headers: headers() });
-      if (res.ok) setSelected((await res.json()) as Customer);
-    } catch { /* keep basic data already set */ }
-  })();
-}}>
-                    <Avatar name={c.name} size={38} tier={c.membershipTier}/>
-                    <div style={{ flex:1,minWidth:0 }}>
-                      <div className="cm-list-name">{c.name}</div>
-                      <div className="cm-list-phone"><Ic n="phone" s={10}/>{c.phone}</div>
-                      <div className="cm-list-meta">
-                        {c.membershipTier!=="none" && <span className="cm-list-tier-badge" style={{ background:mc.bg,color:mc.color }}>{mc.label}</span>}
-                        {(c.loyaltyPoints ?? 0) > 0 && <span className="cm-list-pts">⭑ {(c.loyaltyPoints ?? 0).toLocaleString()} pts</span>}
+                <div className="cm-loading-row">
+                  <div className="cm-spinner" />
+                </div>
+              ) : filteredCustomers.length === 0 ? (
+                <div className="cm-list-empty">
+                  <Ic n="users" s={36} />
+                  <div style={{ fontSize: 13, fontWeight: 300 }}>No customers found</div>
+                </div>
+              ) : (
+                filteredCustomers.map((c) => {
+                  const mc = MEMBERSHIP_CFG[c.membershipTier];
+                  return (
+                    <div
+                      key={c._id}
+                      className={`cm-list-item${selected?._id === c._id ? ' active' : ''}`}
+                      onClick={() => {
+                        void (async () => {
+                          setActiveTab('overview');
+                          // Set basic info immediately for fast UI response
+                          setSelected(c);
+                          // Then fetch full detail including visits/services/referrals
+                          try {
+                            const res = await fetch(`${API_BASE}/${c._id}`, { headers: headers() });
+                            if (res.ok) setSelected((await res.json()) as Customer);
+                          } catch {
+                            /* keep basic data already set */
+                          }
+                        })();
+                      }}
+                    >
+                      <Avatar name={c.name} size={38} tier={c.membershipTier} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="cm-list-name">{c.name}</div>
+                        <div className="cm-list-phone">
+                          <Ic n="phone" s={10} />
+                          {c.phone}
+                        </div>
+                        <div className="cm-list-meta">
+                          {c.membershipTier !== 'none' && (
+                            <span
+                              className="cm-list-tier-badge"
+                              style={{ background: mc.bg, color: mc.color }}
+                            >
+                              {mc.label}
+                            </span>
+                          )}
+                          {(c.loyaltyPoints ?? 0) > 0 && (
+                            <span className="cm-list-pts">
+                              ⭑ {(c.loyaltyPoints ?? 0).toLocaleString()} pts
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        {/* ✅ visitCount / totalSpent */}
+                        <div style={{ fontSize: 11, color: '#8a7560' }}>
+                          {c.visitCount ?? 0} visits
+                        </div>
+                        <div style={{ fontSize: 11, color: '#b8860b', marginTop: 2 }}>
+                          {fmtCur(c.totalSpent ?? 0)}
+                        </div>
                       </div>
                     </div>
-                    <div style={{ textAlign:"right",flexShrink:0 }}>
-                      {/* ✅ visitCount / totalSpent */}
-                      <div style={{ fontSize:11,color:"#8a7560" }}>{c.visitCount ?? 0} visits</div>
-                      <div style={{ fontSize:11,color:"#b8860b",marginTop:2 }}>{fmtCur(c.totalSpent ?? 0)}</div>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </aside>
 
@@ -637,38 +955,104 @@ const openEdit = (c: Customer) => {
           <div className="cm-detail-panel">
             {!selected ? (
               <div className="cm-detail-empty">
-                <div className="cm-detail-empty-icon"><Ic n="user" s={64}/></div>
+                <div className="cm-detail-empty-icon">
+                  <Ic n="user" s={64} />
+                </div>
                 <div className="cm-detail-empty-text">Select a customer to view details</div>
-                <button className="cm-btn cm-btn-primary" onClick={openNew}><Ic n="plus" s={14}/> Add Customer</button>
+                <button className="cm-btn cm-btn-primary" onClick={openNew}>
+                  <Ic n="plus" s={14} /> Add Customer
+                </button>
               </div>
             ) : (
               <>
                 <div className="cm-detail-header">
-                  <Avatar name={selected.name} size={52} tier={selected.membershipTier}/>
+                  <Avatar name={selected.name} size={52} tier={selected.membershipTier} />
                   <div className="cm-detail-name-wrap">
                     <div className="cm-detail-name">{selected.name}</div>
                     <div className="cm-detail-phone">
-                      <Ic n="phone" s={12}/>{selected.phone}
-                      {selected.email && <><span style={{ color:"#e0d5c0" }}>·</span><Ic n="mail" s={12}/>{selected.email}</>}
+                      <Ic n="phone" s={12} />
+                      {selected.phone}
+                      {selected.email && (
+                        <>
+                          <span style={{ color: '#e0d5c0' }}>·</span>
+                          <Ic n="mail" s={12} />
+                          {selected.email}
+                        </>
+                      )}
                     </div>
-                    {(selected.tags?.length ?? 0) > 0 && <div className="cm-detail-tags">{selected.tags?.map(t => <span key={t} className="cm-detail-tag">{t}</span>)}</div>}
+                    {(selected.tags?.length ?? 0) > 0 && (
+                      <div className="cm-detail-tags">
+                        {selected.tags?.map((t) => (
+                          <span key={t} className="cm-detail-tag">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="cm-detail-actions">
-                    <button className="cm-icon-btn" title="WhatsApp" onClick={() => window.open(`https://wa.me/91${selected.phone}`)}><Ic n="whatsapp" s={14}/></button>
-                    <button className="cm-btn cm-btn-secondary cm-btn-sm" onClick={() => { openEdit(selected); }}><Ic n="edit" s={12}/> Edit</button>
-                    <button className="cm-icon-btn danger" title="Delete" onClick={() => { void deleteCustomer(selected._id); }}><Ic n="trash" s={14}/></button>
+                    <button
+                      className="cm-icon-btn"
+                      title="WhatsApp"
+                      onClick={() => window.open(`https://wa.me/91${selected.phone}`)}
+                    >
+                      <Ic n="whatsapp" s={14} />
+                    </button>
+                    <button
+                      className="cm-btn cm-btn-secondary cm-btn-sm"
+                      onClick={() => {
+                        openEdit(selected);
+                      }}
+                    >
+                      <Ic n="edit" s={12} /> Edit
+                    </button>
+                    <button
+                      className="cm-icon-btn danger"
+                      title="Delete"
+                      onClick={() => {
+                        void deleteCustomer(selected._id);
+                      }}
+                    >
+                      <Ic n="trash" s={14} />
+                    </button>
                   </div>
                 </div>
 
                 {/* ✅ Stats with correct field names */}
                 <div className="cm-stats-row">
                   {[
-                    { label:"Total Visits",   value: selected.visitCount ?? 0,                                        sub: selected.lastVisit ? `Last: ${fmtDate(selected.lastVisit)}` : "No visits yet" },
-                    { label:"Total Spend",    value: fmtCur(selected.totalSpent ?? 0),                                sub: selected.visitCount ? `Avg ₹${Math.round((selected.totalSpent??0)/selected.visitCount).toLocaleString("en-IN")}/visit` : "—" },
-                    { label:"Loyalty Points", value: (selected.loyaltyPoints??0).toLocaleString(),                    sub: `≈ ${fmtCur(Math.floor((selected.loyaltyPoints??0)/10))} value` },
-                    { label:"Membership",     value: MEMBERSHIP_CFG[selected.membershipTier].label,                  sub: selected.membershipExpiry ? `Expires ${fmtDate(selected.membershipExpiry)}` : "—" },
-                    { label:"Referrals",      value: selected.referrals?.length ?? 0,                                 sub: `${(selected.referrals?.filter(r=>r.status==="converted").length??0).toString()} converted` },
-                  ].map(s => (
+                    {
+                      label: 'Total Visits',
+                      value: selected.visitCount ?? 0,
+                      sub: selected.lastVisit
+                        ? `Last: ${fmtDate(selected.lastVisit)}`
+                        : 'No visits yet',
+                    },
+                    {
+                      label: 'Total Spend',
+                      value: fmtCur(selected.totalSpent ?? 0),
+                      sub: selected.visitCount
+                        ? `Avg ₹${Math.round((selected.totalSpent ?? 0) / selected.visitCount).toLocaleString('en-IN')}/visit`
+                        : '—',
+                    },
+                    {
+                      label: 'Loyalty Points',
+                      value: (selected.loyaltyPoints ?? 0).toLocaleString(),
+                      sub: `≈ ${fmtCur(Math.floor((selected.loyaltyPoints ?? 0) / 10))} value`,
+                    },
+                    {
+                      label: 'Membership',
+                      value: MEMBERSHIP_CFG[selected.membershipTier].label,
+                      sub: selected.membershipExpiry
+                        ? `Expires ${fmtDate(selected.membershipExpiry)}`
+                        : '—',
+                    },
+                    {
+                      label: 'Referrals',
+                      value: selected.referrals?.length ?? 0,
+                      sub: `${(selected.referrals?.filter((r) => r.status === 'converted').length ?? 0).toString()} converted`,
+                    },
+                  ].map((s) => (
                     <div key={s.label} className="cm-stat-cell">
                       <span className="cm-stat-label">{s.label}</span>
                       <span className="cm-stat-value">{s.value}</span>
@@ -678,35 +1062,99 @@ const openEdit = (c: Customer) => {
                 </div>
 
                 <div className="cm-tabs">
-                  {TAB_CFG.map(t => (
-                    <button key={t.id} className={`cm-tab${activeTab===t.id?" active":""}`} onClick={() => { setActiveTab(t.id); }}>
-                      <Ic n={t.icon} s={13}/>{t.label}
+                  {TAB_CFG.map((t) => (
+                    <button
+                      key={t.id}
+                      className={`cm-tab${activeTab === t.id ? ' active' : ''}`}
+                      onClick={() => {
+                        setActiveTab(t.id);
+                      }}
+                    >
+                      <Ic n={t.icon} s={13} />
+                      {t.label}
                     </button>
                   ))}
                 </div>
 
                 <div className="cm-tab-content">
-
                   {/* OVERVIEW */}
-                  {activeTab==="overview" && (
+                  {activeTab === 'overview' && (
                     <div className="cm-overview-grid">
                       <div className="cm-info-card">
-                        <div className="cm-info-card-title"><Ic n="user" s={13}/>Personal Info</div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Mobile</span><span className="cm-info-val">{selected.phone||"—"}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Email</span><span className="cm-info-val">{selected.email||"—"}</span></div>
-                       <div className="cm-info-row"><span className="cm-info-lbl">Date of Birth</span><span className="cm-info-val">{selected.dob?fmtDate(selected.dob):"—"}</span></div>
-<div className="cm-info-row"><span className="cm-info-lbl">Anniversary</span><span className="cm-info-val">{selected.anniversary?fmtDate(selected.anniversary):"—"}</span></div>
-<div className="cm-info-row"><span className="cm-info-lbl">Gender</span><span className="cm-info-val" style={{ textTransform:"capitalize" }}>{selected.gender}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Member Since</span><span className="cm-info-val">{fmtDate(selected.joinDate)}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Referred By</span><span className="cm-info-val">{selected.referredByCode||"—"}</span></div>
+                        <div className="cm-info-card-title">
+                          <Ic n="user" s={13} />
+                          Personal Info
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Mobile</span>
+                          <span className="cm-info-val">{selected.phone || '—'}</span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Email</span>
+                          <span className="cm-info-val">{selected.email || '—'}</span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Date of Birth</span>
+                          <span className="cm-info-val">
+                            {selected.dob ? fmtDate(selected.dob) : '—'}
+                          </span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Anniversary</span>
+                          <span className="cm-info-val">
+                            {selected.anniversary ? fmtDate(selected.anniversary) : '—'}
+                          </span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Gender</span>
+                          <span className="cm-info-val" style={{ textTransform: 'capitalize' }}>
+                            {selected.gender}
+                          </span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Member Since</span>
+                          <span className="cm-info-val">{fmtDate(selected.joinDate)}</span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Referred By</span>
+                          <span className="cm-info-val">{selected.referredByCode || '—'}</span>
+                        </div>
                       </div>
                       <div className="cm-info-card">
-                        <div className="cm-info-card-title"><Ic n="award" s={13}/>Account Summary</div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Total Visits</span><span className="cm-info-val">{selected.visitCount??0}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Total Spend</span><span className="cm-info-val">{fmtCur(selected.totalSpent??0)}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Loyalty Pts</span><span className="cm-info-val">{(selected.loyaltyPoints??0).toLocaleString()}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Membership</span>
-                          <span className="cm-info-val"><span style={{ background:MEMBERSHIP_CFG[selected.membershipTier].bg,color:MEMBERSHIP_CFG[selected.membershipTier].color,padding:"1px 9px",borderRadius:20,fontSize:11,fontWeight:500 }}>{MEMBERSHIP_CFG[selected.membershipTier].label}</span></span>
+                        <div className="cm-info-card-title">
+                          <Ic n="award" s={13} />
+                          Account Summary
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Total Visits</span>
+                          <span className="cm-info-val">{selected.visitCount ?? 0}</span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Total Spend</span>
+                          <span className="cm-info-val">{fmtCur(selected.totalSpent ?? 0)}</span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Loyalty Pts</span>
+                          <span className="cm-info-val">
+                            {(selected.loyaltyPoints ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Membership</span>
+                          <span className="cm-info-val">
+                            <span
+                              style={{
+                                background: MEMBERSHIP_CFG[selected.membershipTier].bg,
+                                color: MEMBERSHIP_CFG[selected.membershipTier].color,
+                                padding: '1px 9px',
+                                borderRadius: 20,
+                                fontSize: 11,
+                                fontWeight: 500,
+                              }}
+                            >
+                              {MEMBERSHIP_CFG[selected.membershipTier].label}
+                            </span>
+                          </span>
                         </div>
                         {/* ── Avg. Rating: derived from ServiceRecord.rating, same field rendered in the Services tab ── */}
                         <div className="cm-info-row">
@@ -716,128 +1164,403 @@ const openEdit = (c: Customer) => {
                               <span className="cm-rating-empty">Not rated yet</span>
                             ) : (
                               <span className="cm-rating-stars">
-                                {[1,2,3,4,5].map(i => (
-                                  <span key={i} className={i <= Math.round(selectedAvgRating) ? "cm-star-filled" : "cm-star-empty"}>★</span>
+                                {[1, 2, 3, 4, 5].map((i) => (
+                                  <span
+                                    key={i}
+                                    className={
+                                      i <= Math.round(selectedAvgRating)
+                                        ? 'cm-star-filled'
+                                        : 'cm-star-empty'
+                                    }
+                                  >
+                                    ★
+                                  </span>
                                 ))}
-                                <span style={{ color:"#8a7560", fontSize:11, marginLeft:4 }}>
+                                <span style={{ color: '#8a7560', fontSize: 11, marginLeft: 4 }}>
                                   {selectedAvgRating.toFixed(1)} / 5
                                 </span>
                               </span>
                             )}
                           </span>
                         </div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Last Visit</span><span className="cm-info-val">{selected.lastVisit?fmtDate(selected.lastVisit):"—"}</span></div>
-                        <div className="cm-info-row"><span className="cm-info-lbl">Referral Code</span>
-                          <span className="cm-info-val" style={{ display:"flex",alignItems:"center",gap:6 }}>
-                            <strong style={{ letterSpacing:"0.1em" }}>{selected.referralCode||"—"}</strong>
-                            {selected.referralCode && <button style={{ background:"none",border:"none",cursor:"pointer",color:"#8a7560",padding:0 }} onClick={() => { copyReferralCode(selected.referralCode); }}><Ic n="copy" s={13}/></button>}
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Last Visit</span>
+                          <span className="cm-info-val">
+                            {selected.lastVisit ? fmtDate(selected.lastVisit) : '—'}
+                          </span>
+                        </div>
+                        <div className="cm-info-row">
+                          <span className="cm-info-lbl">Referral Code</span>
+                          <span
+                            className="cm-info-val"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          >
+                            <strong style={{ letterSpacing: '0.1em' }}>
+                              {selected.referralCode || '—'}
+                            </strong>
+                            {selected.referralCode && (
+                              <button
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: '#8a7560',
+                                  padding: 0,
+                                }}
+                                onClick={() => {
+                                  copyReferralCode(selected.referralCode);
+                                }}
+                              >
+                                <Ic n="copy" s={13} />
+                              </button>
+                            )}
                           </span>
                         </div>
                       </div>
-                      <div className="cm-info-card" style={{ gridColumn:"1/-1" }}>
-                        <div className="cm-info-card-title"><Ic n="edit" s={13}/>Notes</div>
-                        <div className="cm-notes-box">{selected.notes||"No notes added."}</div>
+                      <div className="cm-info-card" style={{ gridColumn: '1/-1' }}>
+                        <div className="cm-info-card-title">
+                          <Ic n="edit" s={13} />
+                          Notes
+                        </div>
+                        <div className="cm-notes-box">{selected.notes || 'No notes added.'}</div>
                       </div>
                     </div>
                   )}
 
                   {/* VISITS */}
-                  {activeTab==="visits" && (
+                  {activeTab === 'visits' && (
                     <div className="cm-table-wrap">
                       <table className="cm-table">
-                        <thead><tr><th>Date</th><th>Services</th><th>Staff</th><th>Total</th><th>Notes</th></tr></thead>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Services</th>
+                            <th>Staff</th>
+                            <th>Total</th>
+                            <th>Notes</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          {!selected.visits?.length ? <tr className="cm-empty-row"><td colSpan={5}>No visit history yet</td></tr>
-                          : selected.visits.map(v => (
-                            <tr key={v._id}>
-                              <td style={{ whiteSpace:"nowrap" }}>{fmtDate(v.date)}</td>
-                              <td>{v.services.map(s => <span key={s} className="cm-svc-pill">{s}</span>)}</td>
-                             <td style={{ color:"#6b5740" }}>{resolveStaffName(v.staff)}</td>
-                              <td style={{ color:"#b8860b",fontWeight:500 }}>{fmtCur(v.total)}</td>
-                              <td style={{ color:"#8a7560",fontSize:12 }}>{v.notes||"—"}</td>
+                          {!selected.visits?.length ? (
+                            <tr className="cm-empty-row">
+                              <td colSpan={5}>No visit history yet</td>
                             </tr>
-                          ))}
+                          ) : (
+                            selected.visits.map((v) => (
+                              <tr key={v._id}>
+                                <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(v.date)}</td>
+                                <td>
+                                  {v.services.map((s) => (
+                                    <span key={s} className="cm-svc-pill">
+                                      {s}
+                                    </span>
+                                  ))}
+                                </td>
+                                <td style={{ color: '#6b5740' }}>{resolveStaffName(v.staff)}</td>
+                                <td style={{ color: '#b8860b', fontWeight: 500 }}>
+                                  {fmtCur(v.total)}
+                                </td>
+                                <td style={{ color: '#8a7560', fontSize: 12 }}>{v.notes || '—'}</td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
                   )}
 
                   {/* SERVICES */}
-                  {activeTab==="services" && (
+                  {activeTab === 'services' && (
                     <div className="cm-table-wrap">
                       <table className="cm-table">
-                        <thead><tr><th>Date</th><th>Service</th><th>Staff</th><th>Duration</th><th>Price</th><th>Rating</th></tr></thead>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Service</th>
+                            <th>Staff</th>
+                            <th>Duration</th>
+                            <th>Price</th>
+                            <th>Rating</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          {!selected.services?.length ? <tr className="cm-empty-row"><td colSpan={6}>No service history yet</td></tr>
-                          : selected.services.map(s => (
-                            <tr key={s._id}>
-                              <td style={{ whiteSpace:"nowrap" }}>{fmtDate(s.date)}</td>
-                              <td><span className="cm-svc-pill">{s.service}</span></td>
-                              <td style={{ color:"#6b5740" }}>{resolveStaffName(s.staff)}</td>
-                              <td style={{ color:"#8a7560" }}>{s.duration} min</td>
-                              <td style={{ color:"#b8860b",fontWeight:500 }}>{fmtCur(s.price)}</td>
-                              <td>
-                                {s.rating ? (
-                                  <div className="cm-rating-stars">
-                                    {[1,2,3,4,5].map(i=><span key={i} className={i<=(s.rating ?? 0)?"cm-star-filled":"cm-star-empty"}>★</span>)}
-                                  </div>
-                                ) : (
-                                  <span className="cm-rating-empty">Not rated</span>
-                                )}
-                              </td>
+                          {!selected.services?.length ? (
+                            <tr className="cm-empty-row">
+                              <td colSpan={6}>No service history yet</td>
                             </tr>
-                          ))}
+                          ) : (
+                            selected.services.map((s) => (
+                              <tr key={s._id}>
+                                <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(s.date)}</td>
+                                <td>
+                                  <span className="cm-svc-pill">{s.service}</span>
+                                </td>
+                                <td style={{ color: '#6b5740' }}>{resolveStaffName(s.staff)}</td>
+                                <td style={{ color: '#8a7560' }}>{s.duration} min</td>
+                                <td style={{ color: '#b8860b', fontWeight: 500 }}>
+                                  {fmtCur(s.price)}
+                                </td>
+                                <td>
+                                  {s.rating ? (
+                                    <div className="cm-rating-stars">
+                                      {[1, 2, 3, 4, 5].map((i) => (
+                                        <span
+                                          key={i}
+                                          className={
+                                            i <= (s.rating ?? 0)
+                                              ? 'cm-star-filled'
+                                              : 'cm-star-empty'
+                                          }
+                                        >
+                                          ★
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="cm-rating-empty">Not rated</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
                   )}
 
                   {/* LOYALTY */}
-                  {activeTab==="loyalty" && (
+                  {activeTab === 'loyalty' && (
                     <>
                       <div className="cm-loyalty-hero">
                         <div className="cm-loyalty-pts-label">Available Points</div>
-                        <div className="cm-loyalty-pts-val">{(selected.loyaltyPoints??0).toLocaleString()}</div>
-                        <div className="cm-loyalty-pts-sub">≈ {fmtCur(Math.floor((selected.loyaltyPoints??0)/10))} redeemable value</div>
+                        <div className="cm-loyalty-pts-val">
+                          {(selected.loyaltyPoints ?? 0).toLocaleString()}
+                        </div>
+                        <div className="cm-loyalty-pts-sub">
+                          ≈ {fmtCur(Math.floor((selected.loyaltyPoints ?? 0) / 10))} redeemable
+                          value
+                        </div>
                         {(() => {
-                          const next = selected.membershipTier==="none"?500:selected.membershipTier==="silver"?1500:selected.membershipTier==="gold"?4000:null;
-                          const pct = next?Math.min(100,Math.round(((selected.loyaltyPoints??0)/next)*100)):100;
-                          return next ? (<><div className="cm-loyalty-prog-wrap"><div className="cm-loyalty-prog-bar" style={{ width:`${pct.toString()}%` }}/></div><div className="cm-loyalty-prog-text">{next-(selected.loyaltyPoints??0)} pts to next tier reward</div></>) : (<div className="cm-loyalty-prog-text" style={{ marginTop:16 }}>Maximum tier achieved 🎉</div>);
+                          const next =
+                            selected.membershipTier === 'none'
+                              ? 500
+                              : selected.membershipTier === 'silver'
+                                ? 1500
+                                : selected.membershipTier === 'gold'
+                                  ? 4000
+                                  : null;
+                          const pct = next
+                            ? Math.min(
+                                100,
+                                Math.round(((selected.loyaltyPoints ?? 0) / next) * 100),
+                              )
+                            : 100;
+                          return next ? (
+                            <>
+                              <div className="cm-loyalty-prog-wrap">
+                                <div
+                                  className="cm-loyalty-prog-bar"
+                                  style={{ width: `${pct.toString()}%` }}
+                                />
+                              </div>
+                              <div className="cm-loyalty-prog-text">
+                                {next - (selected.loyaltyPoints ?? 0)} pts to next tier reward
+                              </div>
+                            </>
+                          ) : (
+                            <div className="cm-loyalty-prog-text" style={{ marginTop: 16 }}>
+                              Maximum tier achieved 🎉
+                            </div>
+                          );
                         })()}
                       </div>
                       <div className="cm-loyalty-grid">
-                        <div className="cm-loyalty-card"><div className="cm-loyalty-card-icon">⭑</div><div className="cm-loyalty-card-val">{(selected.loyaltyPoints??0).toLocaleString()}</div><div className="cm-loyalty-card-lbl">Total Earned</div></div>
-                        <div className="cm-loyalty-card"><div className="cm-loyalty-card-icon">💰</div><div className="cm-loyalty-card-val">{fmtCur(selected.totalSpent??0)}</div><div className="cm-loyalty-card-lbl">Lifetime Spend</div></div>
-                        <div className="cm-loyalty-card"><div className="cm-loyalty-card-icon">🎁</div><div className="cm-loyalty-card-val">{selected.referrals?.filter(r=>r.status==="credited").length??0}</div><div className="cm-loyalty-card-lbl">Referral Rewards</div></div>
+                        <div className="cm-loyalty-card">
+                          <div className="cm-loyalty-card-icon">⭑</div>
+                          <div className="cm-loyalty-card-val">
+                            {(selected.loyaltyPoints ?? 0).toLocaleString()}
+                          </div>
+                          <div className="cm-loyalty-card-lbl">Total Earned</div>
+                        </div>
+                        <div className="cm-loyalty-card">
+                          <div className="cm-loyalty-card-icon">💰</div>
+                          <div className="cm-loyalty-card-val">
+                            {fmtCur(selected.totalSpent ?? 0)}
+                          </div>
+                          <div className="cm-loyalty-card-lbl">Lifetime Spend</div>
+                        </div>
+                        <div className="cm-loyalty-card">
+                          <div className="cm-loyalty-card-icon">🎁</div>
+                          <div className="cm-loyalty-card-val">
+                            {selected.referrals?.filter((r) => r.status === 'credited').length ?? 0}
+                          </div>
+                          <div className="cm-loyalty-card-lbl">Referral Rewards</div>
+                        </div>
                       </div>
                     </>
                   )}
 
                   {/* MEMBERSHIP */}
-                  {activeTab==="membership" && (
+                  {activeTab === 'membership' && (
                     <>
                       <div className={`cm-member-card ${selected.membershipTier}`}>
                         <div className="cm-member-tier-label">Current Tier</div>
-                        <div className="cm-member-tier-name">{MEMBERSHIP_CFG[selected.membershipTier].label}</div>
-                        {selected.membershipExpiry && <div className="cm-member-expiry">Valid until {fmtDate(selected.membershipExpiry)}</div>}
+                        <div className="cm-member-tier-name">
+                          {MEMBERSHIP_CFG[selected.membershipTier].label}
+                        </div>
+                        {selected.membershipExpiry && (
+                          <div className="cm-member-expiry">
+                            Valid until {fmtDate(selected.membershipExpiry)}
+                          </div>
+                        )}
                       </div>
-                      <div className="cm-member-perks" style={{ marginBottom:16 }}>
+                      <div className="cm-member-perks" style={{ marginBottom: 16 }}>
                         <div className="cm-member-perks-title">Membership Benefits</div>
-                        {selected.membershipTier==="none" && <div style={{ color:"#8a7560",fontSize:13,padding:"8px 0" }}>No active membership. Upgrade to unlock perks.</div>}
-                        {selected.membershipTier==="silver" && (<><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="tag" s={13}/></div><div><div className="cm-perk-text">10% off all services</div><div className="cm-perk-sub">Applied automatically at checkout</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="star" s={13}/></div><div><div className="cm-perk-text">1.5× loyalty points</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="gift" s={13}/></div><div><div className="cm-perk-text">Birthday month discount — 15%</div></div></div></>)}
-                        {selected.membershipTier==="gold" && (<><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="tag" s={13}/></div><div><div className="cm-perk-text">20% off all services</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="star" s={13}/></div><div><div className="cm-perk-text">2× loyalty points</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="gift" s={13}/></div><div><div className="cm-perk-text">Birthday month discount — 25%</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="clock" s={13}/></div><div><div className="cm-perk-text">Priority booking</div></div></div></>)}
-                        {selected.membershipTier==="platinum" && (<><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="tag" s={13}/></div><div><div className="cm-perk-text">30% off all services</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="star" s={13}/></div><div><div className="cm-perk-text">3× loyalty points</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="gift" s={13}/></div><div><div className="cm-perk-text">Birthday month — complimentary service</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="clock" s={13}/></div><div><div className="cm-perk-text">Priority booking + dedicated stylist</div></div></div><div className="cm-perk-row"><div className="cm-perk-icon"><Ic n="users" s={13}/></div><div><div className="cm-perk-text">Bring a guest — 10% off their service</div></div></div></>)}
+                        {selected.membershipTier === 'none' && (
+                          <div style={{ color: '#8a7560', fontSize: 13, padding: '8px 0' }}>
+                            No active membership. Upgrade to unlock perks.
+                          </div>
+                        )}
+                        {selected.membershipTier === 'silver' && (
+                          <>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="tag" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">10% off all services</div>
+                                <div className="cm-perk-sub">Applied automatically at checkout</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="star" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">1.5× loyalty points</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="gift" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">Birthday month discount — 15%</div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {selected.membershipTier === 'gold' && (
+                          <>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="tag" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">20% off all services</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="star" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">2× loyalty points</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="gift" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">Birthday month discount — 25%</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="clock" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">Priority booking</div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {selected.membershipTier === 'platinum' && (
+                          <>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="tag" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">30% off all services</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="star" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">3× loyalty points</div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="gift" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">
+                                  Birthday month — complimentary service
+                                </div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="clock" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">
+                                  Priority booking + dedicated stylist
+                                </div>
+                              </div>
+                            </div>
+                            <div className="cm-perk-row">
+                              <div className="cm-perk-icon">
+                                <Ic n="users" s={13} />
+                              </div>
+                              <div>
+                                <div className="cm-perk-text">
+                                  Bring a guest — 10% off their service
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      {selected.membershipTier!=="platinum" && (
+                      {selected.membershipTier !== 'platinum' && (
                         <div>
                           <div className="cm-divider-label">Upgrade Tier</div>
-                          <div className="cm-upgrade-row" style={{ marginTop:12 }}>
-                            {(["silver","gold","platinum"] as MembershipTier[]).filter(t=>t!==selected.membershipTier).map(t=>(
-                              <div key={t} className="cm-upgrade-card">
-                                <div style={{ fontSize:11,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",color:MEMBERSHIP_CFG[t].color }}>{MEMBERSHIP_CFG[t].label}</div>
-                                <div style={{ fontSize:11,color:"#8a7560",marginTop:4 }}>from {fmtCur(MEMBERSHIP_CFG[t].minSpend)}</div>
-                              </div>
-                            ))}
+                          <div className="cm-upgrade-row" style={{ marginTop: 12 }}>
+                            {(['silver', 'gold', 'platinum'] as MembershipTier[])
+                              .filter((t) => t !== selected.membershipTier)
+                              .map((t) => (
+                                <div key={t} className="cm-upgrade-card">
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 500,
+                                      letterSpacing: '0.1em',
+                                      textTransform: 'uppercase',
+                                      color: MEMBERSHIP_CFG[t].color,
+                                    }}
+                                  >
+                                    {MEMBERSHIP_CFG[t].label}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#8a7560', marginTop: 4 }}>
+                                    from {fmtCur(MEMBERSHIP_CFG[t].minSpend)}
+                                  </div>
+                                </div>
+                              ))}
                           </div>
                         </div>
                       )}
@@ -845,48 +1568,110 @@ const openEdit = (c: Customer) => {
                   )}
 
                   {/* REFERRALS */}
-                  {activeTab==="referrals" && (
+                  {activeTab === 'referrals' && (
                     <>
                       <div className="cm-referral-hero">
                         <div className="cm-referral-code-box">
-                          <div style={{ fontSize:10,fontWeight:500,letterSpacing:"0.15em",textTransform:"uppercase",color:"#8a7560",marginBottom:4 }}>Referral Code</div>
-                          <div className="cm-referral-code">{selected.referralCode||"—"}</div>
-                          <div className="cm-referral-code-sub">Share to earn ₹100 per conversion</div>
+                          <div
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 500,
+                              letterSpacing: '0.15em',
+                              textTransform: 'uppercase',
+                              color: '#8a7560',
+                              marginBottom: 4,
+                            }}
+                          >
+                            Referral Code
+                          </div>
+                          <div className="cm-referral-code">{selected.referralCode || '—'}</div>
+                          <div className="cm-referral-code-sub">
+                            Share to earn ₹100 per conversion
+                          </div>
                         </div>
-                        <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                          <button className="cm-referral-copy-btn" onClick={() => { copyReferralCode(selected.referralCode); }}>
-                            <Ic n={copiedCode?"check":"copy"} s={13}/>{copiedCode?"Copied!":"Copy Code"}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <button
+                            className="cm-referral-copy-btn"
+                            onClick={() => {
+                              copyReferralCode(selected.referralCode);
+                            }}
+                          >
+                            <Ic n={copiedCode ? 'check' : 'copy'} s={13} />
+                            {copiedCode ? 'Copied!' : 'Copy Code'}
                           </button>
-                          <button className="cm-referral-copy-btn" onClick={() => window.open(`https://wa.me/?text=Use my referral code ${selected.referralCode} at Velvet Salon!`)}>
-                            <Ic n="whatsapp" s={13}/>Share via WhatsApp
+                          <button
+                            className="cm-referral-copy-btn"
+                            onClick={() =>
+                              window.open(
+                                `https://wa.me/?text=Use my referral code ${selected.referralCode} at Velvet Salon!`,
+                              )
+                            }
+                          >
+                            <Ic n="whatsapp" s={13} />
+                            Share via WhatsApp
                           </button>
                         </div>
                       </div>
                       <div className="cm-referral-stats">
-                        <div className="cm-ref-stat"><div className="cm-ref-stat-val">{selected.referrals?.length??0}</div><div className="cm-ref-stat-lbl">Total Referred</div></div>
-                        <div className="cm-ref-stat"><div className="cm-ref-stat-val">{selected.referrals?.filter(r=>r.status==="converted").length??0}</div><div className="cm-ref-stat-lbl">Converted</div></div>
-                        <div className="cm-ref-stat"><div className="cm-ref-stat-val">{fmtCur(selected.referrals?.reduce((sum,r)=>sum+(r.status==="credited"?r.reward:0),0)??0)}</div><div className="cm-ref-stat-lbl">Rewards Earned</div></div>
+                        <div className="cm-ref-stat">
+                          <div className="cm-ref-stat-val">{selected.referrals?.length ?? 0}</div>
+                          <div className="cm-ref-stat-lbl">Total Referred</div>
+                        </div>
+                        <div className="cm-ref-stat">
+                          <div className="cm-ref-stat-val">
+                            {selected.referrals?.filter((r) => r.status === 'converted').length ??
+                              0}
+                          </div>
+                          <div className="cm-ref-stat-lbl">Converted</div>
+                        </div>
+                        <div className="cm-ref-stat">
+                          <div className="cm-ref-stat-val">
+                            {fmtCur(
+                              selected.referrals?.reduce(
+                                (sum, r) => sum + (r.status === 'credited' ? r.reward : 0),
+                                0,
+                              ) ?? 0,
+                            )}
+                          </div>
+                          <div className="cm-ref-stat-lbl">Rewards Earned</div>
+                        </div>
                       </div>
                       <div className="cm-table-wrap">
                         <table className="cm-table">
-                          <thead><tr><th>Referred</th><th>Phone</th><th>Date</th><th>Status</th><th>Reward</th></tr></thead>
+                          <thead>
+                            <tr>
+                              <th>Referred</th>
+                              <th>Phone</th>
+                              <th>Date</th>
+                              <th>Status</th>
+                              <th>Reward</th>
+                            </tr>
+                          </thead>
                           <tbody>
-                            {!selected.referrals?.length ? <tr className="cm-empty-row"><td colSpan={5}>No referrals yet</td></tr>
-                            : selected.referrals.map(r=>(
-                              <tr key={r._id}>
-                                <td>{r.referredName}</td>
-                                <td style={{ color:"#6b5740" }}>{r.referredPhone}</td>
-                                <td style={{ whiteSpace:"nowrap" }}>{fmtDate(r.date)}</td>
-                                <td><span className={`cm-ref-status-badge cm-ref-${r.status}`}>{r.status}</span></td>
-                                <td style={{ color:"#b8860b" }}>{fmtCur(r.reward)}</td>
+                            {!selected.referrals?.length ? (
+                              <tr className="cm-empty-row">
+                                <td colSpan={5}>No referrals yet</td>
                               </tr>
-                            ))}
+                            ) : (
+                              selected.referrals.map((r) => (
+                                <tr key={r._id}>
+                                  <td>{r.referredName}</td>
+                                  <td style={{ color: '#6b5740' }}>{r.referredPhone}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(r.date)}</td>
+                                  <td>
+                                    <span className={`cm-ref-status-badge cm-ref-${r.status}`}>
+                                      {r.status}
+                                    </span>
+                                  </td>
+                                  <td style={{ color: '#b8860b' }}>{fmtCur(r.reward)}</td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       </div>
                     </>
                   )}
-
                 </div>
               </>
             )}
@@ -896,90 +1681,233 @@ const openEdit = (c: Customer) => {
         {/* ── Modal ── */}
         {showModal && (
           <div className="cm-overlay" onClick={closeModal}>
-            <div className="cm-modal" onClick={e => { e.stopPropagation(); }}>
+            <div
+              className="cm-modal"
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+            >
               <div className="cm-modal-header">
                 <div>
-                  <div className="cm-modal-title">{editingId?"Edit Customer":"Add Customer"}</div>
-                  <div className="cm-modal-sub">{editingId?"Update customer details":"Register a new customer"}</div>
+                  <div className="cm-modal-title">
+                    {editingId ? 'Edit Customer' : 'Add Customer'}
+                  </div>
+                  <div className="cm-modal-sub">
+                    {editingId ? 'Update customer details' : 'Register a new customer'}
+                  </div>
                 </div>
-                <button className="cm-modal-close" onClick={closeModal}><Ic n="x" s={14}/></button>
+                <button className="cm-modal-close" onClick={closeModal}>
+                  <Ic n="x" s={14} />
+                </button>
               </div>
               <div className="cm-modal-body">
                 <div className="cm-form-row">
-                  <div className="cm-form-field" style={{ gridColumn:"1/-1" }}>
+                  <div className="cm-form-field" style={{ gridColumn: '1/-1' }}>
                     <label className="cm-form-label">Full Name *</label>
-                    <input className="cm-form-input" placeholder="Customer full name" value={form.name} onChange={e=>{ setForm(f=>({...f,name:e.target.value})); }}/>
+                    <input
+                      className="cm-form-input"
+                      placeholder="Customer full name"
+                      value={form.name}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, name: e.target.value }));
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="cm-form-row">
                   <div className="cm-form-field">
                     <label className="cm-form-label">Mobile Number *</label>
-                    <input className="cm-form-input" placeholder="10-digit mobile" value={form.phone} onChange={e=>{ setForm(f=>({...f,phone:e.target.value})); }}/>
+                    <input
+                      className="cm-form-input"
+                      placeholder="10-digit mobile"
+                      value={form.phone}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, phone: e.target.value }));
+                      }}
+                    />
                   </div>
                   <div className="cm-form-field">
                     <label className="cm-form-label">Email</label>
-                    <input className="cm-form-input" placeholder="email@example.com" type="email" value={form.email} onChange={e=>{ setForm(f=>({...f,email:e.target.value})); }}/>
+                    <input
+                      className="cm-form-input"
+                      placeholder="email@example.com"
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, email: e.target.value }));
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="cm-form-row">
-  <div className="cm-form-field">
-    <label className="cm-form-label">Date of Birth</label>
-    <input className="cm-form-input" type="date" value={form.dob} onChange={e=>{ setForm(f=>({...f,dob:e.target.value})); }}/>
-  </div>
-  <div className="cm-form-field">
-    <label className="cm-form-label">Anniversary</label>
-    <input className="cm-form-input" type="date" value={form.anniversary} onChange={e=>{ setForm(f=>({...f,anniversary:e.target.value})); }}/>
-  </div>
-</div>
-<div className="cm-form-row">
-  <div className="cm-form-field">
-    <label className="cm-form-label">Gender</label>
-    <select className="cm-form-select" value={form.gender} onChange={e=>{ setForm(f=>({...f,gender:e.target.value as Customer["gender"]})); }}>
-      <option value="female">Female</option>
-      <option value="male">Male</option>
-      <option value="other">Other</option>
-    </select>
-  </div>
-</div>
+                  <div className="cm-form-field">
+                    <label className="cm-form-label">Date of Birth</label>
+                    <input
+                      className="cm-form-input"
+                      type="date"
+                      value={form.dob}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, dob: e.target.value }));
+                      }}
+                    />
+                  </div>
+                  <div className="cm-form-field">
+                    <label className="cm-form-label">Anniversary</label>
+                    <input
+                      className="cm-form-input"
+                      type="date"
+                      value={form.anniversary}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, anniversary: e.target.value }));
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="cm-form-row">
+                  <div className="cm-form-field">
+                    <label className="cm-form-label">Gender</label>
+                    <select
+                      className="cm-form-select"
+                      value={form.gender}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, gender: e.target.value as Customer['gender'] }));
+                      }}
+                    >
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="cm-divider-label">Membership</div>
                 <div className="cm-form-row">
                   <div className="cm-form-field">
                     <label className="cm-form-label">Membership Tier</label>
-                    <select className="cm-form-select" value={form.membershipTier} onChange={e=>{ setForm(f=>({...f,membershipTier:e.target.value as MembershipTier})); }}>
-                      {(Object.keys(MEMBERSHIP_CFG) as MembershipTier[]).map(t=><option key={t} value={t}>{MEMBERSHIP_CFG[t].label}</option>)}
+                    <select
+                      className="cm-form-select"
+                      value={form.membershipTier}
+                      onChange={(e) => {
+                        setForm((f) => ({
+                          ...f,
+                          membershipTier: e.target.value as MembershipTier,
+                        }));
+                      }}
+                    >
+                      {(Object.keys(MEMBERSHIP_CFG) as MembershipTier[]).map((t) => (
+                        <option key={t} value={t}>
+                          {MEMBERSHIP_CFG[t].label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="cm-form-field">
                     <label className="cm-form-label">Membership Expiry</label>
-                    <input className="cm-form-input" type="date" value={form.membershipExpiry} onChange={e=>{ setForm(f=>({...f,membershipExpiry:e.target.value})); }}/>
+                    <input
+                      className="cm-form-input"
+                      type="date"
+                      value={form.membershipExpiry}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, membershipExpiry: e.target.value }));
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="cm-form-row">
                   <div className="cm-form-field">
                     <label className="cm-form-label">Loyalty Points</label>
-                    <input className="cm-form-input" type="number" min={0} placeholder="0" value={form.loyaltyPoints} onChange={e=>{ setForm(f=>({...f,loyaltyPoints:Number(e.target.value)})); }}/>
+                    <input
+                      className="cm-form-input"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={form.loyaltyPoints}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, loyaltyPoints: Number(e.target.value) }));
+                      }}
+                    />
                   </div>
                   <div className="cm-form-field">
                     <label className="cm-form-label">Referred By (Code)</label>
-                    <input className="cm-form-input" placeholder="Referral code" value={form.referredBy} onChange={e=>{ setForm(f=>({...f,referredBy:e.target.value})); }}/>
+                    <input
+                      className="cm-form-input"
+                      placeholder="Referral code"
+                      value={form.referredBy}
+                      onChange={(e) => {
+                        setForm((f) => ({ ...f, referredBy: e.target.value }));
+                      }}
+                    />
                   </div>
                 </div>
                 <div className="cm-form-field">
                   <label className="cm-form-label">Tags</label>
                   <div className="cm-tags-input-row">
-                    <input className="cm-form-input" style={{ flex:1 }} placeholder="Add tag (e.g. VIP, Regular)" value={tagInput} onChange={e=>{ setTagInput(e.target.value); }} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addTag();}}}/>
-                    <button className="cm-btn cm-btn-secondary cm-btn-sm" onClick={addTag}>Add</button>
+                    <input
+                      className="cm-form-input"
+                      style={{ flex: 1 }}
+                      placeholder="Add tag (e.g. VIP, Regular)"
+                      value={tagInput}
+                      onChange={(e) => {
+                        setTagInput(e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                    />
+                    <button className="cm-btn cm-btn-secondary cm-btn-sm" onClick={addTag}>
+                      Add
+                    </button>
                   </div>
-                  {form.tags.length>0 && <div className="cm-tags-list">{form.tags.map(t=><span key={t} className="cm-tag-pill">{t}<button className="cm-tag-remove" onClick={()=>{ removeTag(t); }}><Ic n="x" s={10}/></button></span>)}</div>}
+                  {form.tags.length > 0 && (
+                    <div className="cm-tags-list">
+                      {form.tags.map((t) => (
+                        <span key={t} className="cm-tag-pill">
+                          {t}
+                          <button
+                            className="cm-tag-remove"
+                            onClick={() => {
+                              removeTag(t);
+                            }}
+                          >
+                            <Ic n="x" s={10} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="cm-form-field">
                   <label className="cm-form-label">Notes</label>
-                  <textarea className="cm-form-textarea" placeholder="Allergies, preferences, special notes…" value={form.notes} onChange={e=>{ setForm(f=>({...f,notes:e.target.value})); }}/>
+                  <textarea
+                    className="cm-form-textarea"
+                    placeholder="Allergies, preferences, special notes…"
+                    value={form.notes}
+                    onChange={(e) => {
+                      setForm((f) => ({ ...f, notes: e.target.value }));
+                    }}
+                  />
                 </div>
                 <div className="cm-modal-footer">
-                  <button className="cm-btn cm-btn-secondary cm-btn-full" onClick={closeModal}>Cancel</button>
-                  <button className="cm-btn cm-btn-primary cm-btn-full" onClick={() => { void saveCustomer(); }} disabled={saving}>
-                    {saving?"Saving…":<><Ic n="check" s={14}/>{editingId?"Save Changes":"Add Customer"}</>}
+                  <button className="cm-btn cm-btn-secondary cm-btn-full" onClick={closeModal}>
+                    Cancel
+                  </button>
+                  <button
+                    className="cm-btn cm-btn-primary cm-btn-full"
+                    onClick={() => {
+                      void saveCustomer();
+                    }}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      'Saving…'
+                    ) : (
+                      <>
+                        <Ic n="check" s={14} />
+                        {editingId ? 'Save Changes' : 'Add Customer'}
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

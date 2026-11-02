@@ -361,6 +361,15 @@ export default function BillingPage() {
   const [selectedReferralIds, setSelectedReferralIds] = useState<string[]>([]);
   const [friendReferralOn, setFriendReferralOn] = useState(false);
 
+  // Any referral code typed in at billing time (works for any customer)
+  const [referralCodeInput, setReferralCodeInput] = useState('');
+  const [appliedReferralCode, setAppliedReferralCode] = useState<{
+    code: string;
+    referrerName: string;
+  } | null>(null);
+  const [referralCodeLoading, setReferralCodeLoading] = useState(false);
+  const [referralCodeError, setReferralCodeError] = useState('');
+
   // ── Free-service reward: past visit count per service for the current phone ──
   const FREE_AFTER = 5; // 5 paid visits → the 6th is free, then the cycle restarts
   const [pastServiceCounts, setPastServiceCounts] = useState<Record<string, number>>({});
@@ -440,8 +449,8 @@ export default function BillingPage() {
   // ← ADD THIS BLOCK: sum the reward value of every toggled-on referral, applied as a discount on this bill
   // Friend side: referred by someone, and this is their first bill (no past visits)
   const friendEligible = !!customer?.referredByCode && customer.visitCount === 0;
-  const friendAlreadyUsed = !!customer?.referredByCode && customer.visitCount > 0;
-  const referralApplied = selectedReferralIds.length > 0 || (friendEligible && friendReferralOn);
+  const referralApplied =
+    selectedReferralIds.length > 0 || (friendEligible && friendReferralOn) || !!appliedReferralCode;
   // 20% once per bill, even if both sides are toggled
   const referralDisc = referralApplied ? Math.round((afterCoupon * REFERRAL_PCT) / 100) : 0;
   const total = Math.max(0, afterCoupon - loyaltyDisc - referralDisc); // ← CHANGED: subtract referralDisc, clamp at 0
@@ -555,6 +564,8 @@ export default function BillingPage() {
       setLookupState(found ? 'found' : 'new');
       setSelectedReferralIds([]); // ← ADD THIS LINE: reset toggles for the new lookup
       setFriendReferralOn(false);
+      setAppliedReferralCode(null);
+      setReferralCodeError('');
 
       // ← ADD THIS BLOCK: the search endpoint returns a lightweight record
       // that doesn't include `referrals` — fetch the full customer detail
@@ -740,6 +751,51 @@ export default function BillingPage() {
     setCouponError('');
   };
 
+  // Validate any referral code and attach it to this bill
+  const applyReferralCode = async () => {
+    const code = referralCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setReferralCodeLoading(true);
+    setReferralCodeError('');
+    try {
+      const res = await fetch(`${API}/customers?q=${encodeURIComponent(code)}`, {
+        headers: hdr(),
+      });
+      if (!res.ok) throw new Error();
+      const data = (await res.json()) as CustomerInfo[];
+      let owner = data.find((c) => c.referralCode?.toUpperCase() === code);
+
+      // Search doesn't match referral codes, so fall back to the full customer list
+      if (!owner) {
+        const resAll = await fetch(`${API}/customers`, { headers: hdr() });
+        if (resAll.ok) {
+          const all = (await resAll.json()) as CustomerInfo[];
+          owner = all.find((c) => c.referralCode?.toUpperCase() === code);
+        }
+      }
+      if (!owner) {
+        setReferralCodeError('Invalid referral code.');
+        return;
+      }
+      if (customer && owner._id === customer._id) {
+        setReferralCodeError("A customer can't use their own referral code.");
+        return;
+      }
+      setAppliedReferralCode({ code, referrerName: owner.name });
+      setReferralCodeInput('');
+    } catch {
+      setReferralCodeError('Failed to validate referral code.');
+    } finally {
+      setReferralCodeLoading(false);
+    }
+  };
+
+  const removeReferralCode = () => {
+    setAppliedReferralCode(null);
+    setReferralCodeInput('');
+    setReferralCodeError('');
+  };
+
   // Silently re-check the applied coupon whenever the pre-coupon total shifts
   // (items or manual discount edited) so the shown amount stays accurate.
   useEffect(() => {
@@ -803,6 +859,7 @@ export default function BillingPage() {
       appointmentId: appointmentId || undefined,
       redeemedReferralIds: selectedReferralIds, // ← tells the backend which pending referrals to mark converted + credit
       referralDiscount: referralDisc, // ← ADD THIS LINE: the ₹ amount deducted from this bill for the toggled referrals
+      referralCodeUsed: appliedReferralCode?.code, // manually entered referral code (any customer)
     };
     try {
       const url = editingBillId ? `${API}/bills/${editingBillId}` : `${API}/bills`;
@@ -875,6 +932,9 @@ export default function BillingPage() {
       setEditingBillId(null);
       setSelectedReferralIds([]); // ← ADD THIS LINE
       setFriendReferralOn(false);
+      setAppliedReferralCode(null);
+      setReferralCodeInput('');
+      setReferralCodeError('');
       void fetchRecent();
     } catch (e: unknown) {
       setApiError(e instanceof Error ? e.message : 'Failed to save bill.');
@@ -1574,83 +1634,144 @@ export default function BillingPage() {
                     </div>
                   )}
                 {/* Referral discount: referrer toggles + referred-friend toggle + eligibility notice */}
-                {lookupState === 'found' && customer && (
-                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {/* Referrer side — one toggle per pending referral */}
-                    {customer.referrals
-                      ?.filter((r) => r.status === 'pending')
-                      .map((r) => {
-                        const isOn = selectedReferralIds.includes(r._id);
-                        return (
-                          <div
-                            key={r._id}
-                            className={`bl-loyalty-row${isOn ? ' on' : ''}`}
-                            onClick={() => {
-                              setSelectedReferralIds((prev) =>
-                                prev.includes(r._id)
-                                  ? prev.filter((id) => id !== r._id)
-                                  : [...prev, r._id],
-                              );
-                            }}
-                          >
-                            <div className={`bl-tog${isOn ? ' on' : ''}`}>
-                              <div className="bl-tok" />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 13, color: '#1a1208' }}>
-                                Referred: {r.referredName} ({r.referredPhone})
+                {lookupState === 'found' &&
+                  customer &&
+                  (friendEligible ||
+                    (customer.referrals?.some((r) => r.status === 'pending') ?? false)) && (
+                    <div
+                      style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}
+                    >
+                      {/* Referrer side — one toggle per pending referral */}
+                      {customer.referrals
+                        ?.filter((r) => r.status === 'pending')
+                        .map((r) => {
+                          const isOn = selectedReferralIds.includes(r._id);
+                          return (
+                            <div
+                              key={r._id}
+                              className={`bl-loyalty-row${isOn ? ' on' : ''}`}
+                              onClick={() => {
+                                setSelectedReferralIds((prev) =>
+                                  prev.includes(r._id)
+                                    ? prev.filter((id) => id !== r._id)
+                                    : [...prev, r._id],
+                                );
+                              }}
+                            >
+                              <div className={`bl-tog${isOn ? ' on' : ''}`}>
+                                <div className="bl-tok" />
                               </div>
-                              <div style={{ fontSize: 11, color: '#8a7560', marginTop: 2 }}>
-                                ✅ Eligible — {REFERRAL_PCT}% referral discount available.{' '}
-                                {isOn
-                                  ? 'Will be applied and marked converted on this bill'
-                                  : 'Toggle to use it'}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, color: '#1a1208' }}>
+                                  Referred: {r.referredName} ({r.referredPhone})
+                                </div>
+                                <div style={{ fontSize: 11, color: '#8a7560', marginTop: 2 }}>
+                                  ✅ Eligible — {REFERRAL_PCT}% referral discount available.{' '}
+                                  {isOn
+                                    ? 'Will be applied and marked converted on this bill'
+                                    : 'Toggle to use it'}
+                                </div>
                               </div>
+                              <Ic n="gift" s={14} />
                             </div>
-                            <Ic n="gift" s={14} />
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
 
-                    {/* Friend side — referred by someone, first bill */}
-                    {friendEligible && (
-                      <div
-                        className={`bl-loyalty-row${friendReferralOn ? ' on' : ''}`}
-                        onClick={() => {
-                          setFriendReferralOn((v) => !v);
-                        }}
-                      >
-                        <div className={`bl-tog${friendReferralOn ? ' on' : ''}`}>
-                          <div className="bl-tok" />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: '#1a1208' }}>
-                            Referred by code {customer.referredByCode}
+                      {/* Friend side — referred by someone, first bill */}
+                      {friendEligible && (
+                        <div
+                          className={`bl-loyalty-row${friendReferralOn ? ' on' : ''}`}
+                          onClick={() => {
+                            setFriendReferralOn((v) => !v);
+                          }}
+                        >
+                          <div className={`bl-tog${friendReferralOn ? ' on' : ''}`}>
+                            <div className="bl-tok" />
                           </div>
-                          <div style={{ fontSize: 11, color: '#8a7560', marginTop: 2 }}>
-                            ✅ Eligible — {REFERRAL_PCT}% off on this first bill.{' '}
-                            {friendReferralOn ? 'Applied' : 'Toggle to use it'}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, color: '#1a1208' }}>
+                              Referred by code {customer.referredByCode}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#8a7560', marginTop: 2 }}>
+                              ✅ Eligible — {REFERRAL_PCT}% off on this first bill.{' '}
+                              {friendReferralOn ? 'Applied' : 'Toggle to use it'}
+                            </div>
                           </div>
-                        </div>
-                        <Ic n="gift" s={14} />
-                      </div>
-                    )}
-
-                    {/* Not eligible notices */}
-                    {friendAlreadyUsed && (
-                      <div className="bl-note-info bl-note-gray" style={{ marginTop: 0 }}>
-                        <Ic n="info" s={14} />❌ Not eligible — referral discount is only for the
-                        first bill (already visited before).
-                      </div>
-                    )}
-                    {!friendEligible &&
-                      !friendAlreadyUsed &&
-                      (customer.referrals?.filter((r) => r.status === 'pending').length ?? 0) ===
-                        0 && (
-                        <div className="bl-note-info bl-note-gray" style={{ marginTop: 0 }}>
-                          <Ic n="info" s={14} />❌ No referral discount available for this customer.
+                          <Ic n="gift" s={14} />
                         </div>
                       )}
+                    </div>
+                  )}
+                {phone.length >= 10 && (lookupState === 'found' || lookupState === 'new') && (
+                  <div style={{ marginTop: 12 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        letterSpacing: '.14em',
+                        textTransform: 'uppercase',
+                        color: '#8a7560',
+                        marginBottom: 8,
+                      }}
+                    >
+                      Referral Code
+                    </div>
+                    {appliedReferralCode ? (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '10px 13px',
+                          background: '#f0fdf4',
+                          border: '1px solid #86efac',
+                          borderRadius: 10,
+                        }}
+                      >
+                        <Ic n="gift" s={14} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: '#14532d' }}>
+                            {appliedReferralCode.code}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#16a34a' }}>
+                            Referred by {appliedReferralCode.referrerName} · {REFERRAL_PCT}% off
+                          </div>
+                        </div>
+                        <button className="bl-rm-btn" onClick={removeReferralCode}>
+                          <Ic n="x" s={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="bl-disc-row">
+                        <input
+                          className="bl-disc-inp"
+                          style={{ width: 160, textTransform: 'uppercase' }}
+                          placeholder="Enter code"
+                          value={referralCodeInput}
+                          onChange={(e) => {
+                            setReferralCodeInput(e.target.value.toUpperCase());
+                            setReferralCodeError('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void applyReferralCode();
+                          }}
+                        />
+                        <button
+                          className="bl-btn bl-btn-secondary bl-btn-sm"
+                          disabled={referralCodeLoading || !referralCodeInput.trim()}
+                          onClick={() => {
+                            void applyReferralCode();
+                          }}
+                        >
+                          {referralCodeLoading ? 'Checking…' : 'Apply'}
+                        </button>
+                      </div>
+                    )}
+                    {referralCodeError && (
+                      <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>
+                        {referralCodeError}
+                      </div>
+                    )}
                   </div>
                 )}
                 {lookupState === 'new' && (
