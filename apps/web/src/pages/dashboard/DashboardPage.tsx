@@ -291,6 +291,13 @@ const NOTIF_ORDER: NotifCategory[] = [
   'inactive',
 ];
 
+// ─── Payment method display config ───────────────────────────────────────────
+const PAYMENT_CFG: Record<'cash' | 'card' | 'upi', { label: string; color: string; bg: string }> = {
+  cash: { label: 'Cash', color: '#15803d', bg: '#f0fdf4' },
+  card: { label: 'Card', color: '#1d4ed8', bg: '#eff6ff' },
+  upi: { label: 'UPI / GPay', color: '#7c3aed', bg: '#f5f3ff' },
+};
+
 // ─── Staff role display config (mirrors ROLE_CFG in Staffrole.tsx, dashboard-local) ──
 const STAFF_ROLE_CFG: Record<string, { label: string; color: string; bg: string }> = {
   admin: { label: 'Admin', color: '#7c3aed', bg: '#f5f3ff' },
@@ -513,6 +520,12 @@ export default function DashboardPage() {
           ? 100
           : 0;
 
+    // Payment method breakdown — paid bills on the selected date
+    const paymentMix = (['cash', 'card', 'upi'] as const).map((m) => {
+      const list = billsToday.filter((b) => b.paymentMethod === m);
+      return { method: m, count: list.length, amount: sumTotal(list) };
+    });
+
     // Weekly revenue chart — 7 days ending on the selected date
     const weekly = Array.from({ length: 7 }, (_, i) => {
       const ds = addDays(selectedDate, -(6 - i));
@@ -603,6 +616,7 @@ export default function DashboardPage() {
       monthly,
       serviceMix,
       topStaff,
+      paymentMix,
     };
   }, [bills, appointments, customers, staff, expenses, selectedDate]);
 
@@ -1664,6 +1678,60 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* ── Payment Methods — admin & receptionist only ── */}
+            {(isAdmin || isReceptionist) && (
+              <div className="rounded-xl border border-[#ede5d6] bg-white px-4 py-4 sm:px-6 sm:py-[22px]">
+                <div className="mb-5">
+                  <div className="font-['Cormorant_Garamond',serif] text-xl font-normal text-[#1a1208]">
+                    Payment Methods
+                  </div>
+                  <div className="mt-0.5 text-xs font-light tracking-[0.04em] text-[#8a7560]">
+                    {isToday
+                      ? 'Today'
+                      : new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}{' '}
+                    · paid bills
+                  </div>
+                </div>
+                {loading ? (
+                  <div className="p-8 text-center text-[13px] font-light tracking-[0.04em] text-[#8a7560]">
+                    Loading payments…
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {derived.paymentMix.map((p) => {
+                      const cfg = PAYMENT_CFG[p.method];
+                      return (
+                        <div
+                          key={p.method}
+                          className="rounded-lg px-4 py-4 text-center"
+                          style={{ background: cfg.bg }}
+                        >
+                          <div
+                            className="text-[10px] font-medium uppercase tracking-[0.1em]"
+                            style={{ color: cfg.color }}
+                          >
+                            {cfg.label}
+                          </div>
+                          <div
+                            className="mt-1 font-['Cormorant_Garamond',serif] text-[32px] font-normal leading-none"
+                            style={{ color: cfg.color }}
+                          >
+                            {p.count}
+                          </div>
+                          <div className="mt-1 text-[11px] font-light" style={{ color: cfg.color }}>
+                            bill{p.count !== 1 ? 's' : ''} · {fmtCur(p.amount)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Staff Attendance + Staff Roles — admin & receptionist only ── */}
             {(isAdmin || isReceptionist) && (

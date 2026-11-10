@@ -52,7 +52,7 @@ interface SavedBill {
   billNumber: string;
   customer: { name: string; phone: string } | null;
   phone: string;
-  items: Omit<BillItem, '_key'>[];
+  items: (Omit<BillItem, '_key'> & { originalPrice?: number })[];
   subtotal: number;
   membershipDiscount: number;
   discountAmount: number;
@@ -833,6 +833,7 @@ export default function BillingPage() {
     const discountedItems = items.map((item) => ({
       ...stripKey(item),
       price: Math.round(item.price * discountRatio),
+      originalPrice: item.price, // original service amount, shown on the invoice
     }));
 
     const payload = {
@@ -1021,10 +1022,42 @@ export default function BillingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showInvoice, lastBill?.billNumber]);
 
+  // When an invoice is reopened (e.g. from Recent Bills), referralCode is empty
+  // because it is only set in saveBill — load it from the customer record.
+  useEffect(() => {
+    if (!showInvoice || !lastBill) return;
+    const state = { cancelled: false };
+    void (async () => {
+      try {
+        const res = await fetch(`${API}/customers?q=${lastBill.phone}`, { headers: hdr() });
+        if (!res.ok) return;
+        const list = (await res.json()) as CustomerInfo[];
+        const found = list.find((c) => c.phone === lastBill.phone);
+        if (!found) return;
+        let code = found.referralCode;
+        if (!code) {
+          // search result is lightweight, so fall back to the full record
+          const res2 = await fetch(`${API}/customers/${found._id}`, { headers: hdr() });
+          if (res2.ok) code = ((await res2.json()) as CustomerInfo).referralCode;
+        }
+        if (code && !state.cancelled) setReferralCode((prev) => prev ?? code);
+      } catch {
+        /* advisory: message simply goes without the referral line */
+      }
+    })();
+    return () => {
+      state.cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInvoice, lastBill?.billNumber]);
+
   const whatsappInvoice = (b: SavedBill) => {
     const E = (cp: number) => String.fromCodePoint(cp); // safe emoji
-    const lines = b.items.map((i) => `• ${i.serviceName} — ${fmtCur(i.price)}`).join('\n');
-    const disc = b.membershipDiscount + b.discountAmount + b.loyaltyRedeemed;
+    const lines = b.items
+      .map((i) => `• ${i.serviceName} — ${fmtCur(i.originalPrice ?? i.price)}`)
+      .join('\n');
+    // subtotal − total captures every discount (membership, manual, coupon, loyalty, referral)
+    const disc = b.subtotal - b.total;
     const couponLine = autoCoupon
       ? `\n${E(0x1f381)} You've earned ${autoCoupon.discountValue.toString()}% off your next visit! Use code *${autoCoupon.code}* before ${new Date(autoCoupon.expiryDate).toLocaleDateString('en-IN')}.\n`
       : '';
@@ -1037,6 +1070,7 @@ export default function BillingPage() {
       (b.customer?.name && b.customer.name !== 'Walk-in' ? `Customer: ${b.customer.name}\n` : '') +
       `Date: ${new Date(b.date ?? b.createdAt).toLocaleDateString('en-IN')}\n\n` +
       `${lines}\n\n` +
+      `Subtotal: ${fmtCur(b.subtotal)}\n` +
       (disc > 0 ? `Discount: −${fmtCur(disc)}\n` : '') +
       `*Total: ${fmtCur(b.total)}*\n` +
       `Payment: ${b.paymentMethod.toUpperCase()}\n` +
@@ -1072,7 +1106,7 @@ export default function BillingPage() {
   const startEditBill = (bill: SavedBill) => {
     setEditingBillId(bill._id);
     setPhone(bill.phone);
-    setItems(bill.items.map((i) => ({ ...i, _key: nk() })));
+    setItems(bill.items.map((i) => ({ ...i, price: i.originalPrice ?? i.price, _key: nk() })));
     setDiscountType('percent');
     setDiscountValue(0);
     setRedeemLoyalty(bill.loyaltyRedeemed > 0);
@@ -2766,7 +2800,7 @@ export default function BillingPage() {
                       <tr key={i}>
                         <td>{item.serviceName}</td>
                         <td style={{ color: '#6b5740' }}>{staffName(item.staffId)}</td>
-                        <td>{fmtCur(item.price)}</td>
+                        <td>{fmtCur(item.originalPrice ?? item.price)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2800,6 +2834,22 @@ export default function BillingPage() {
                       <span>−{fmtCur(lastBill.referralDiscount ?? 0)}</span>
                     </div>
                   )}
+                  {(() => {
+                    // Coupon (and any discount not stored separately) = whatever is left
+                    const otherDisc =
+                      lastBill.subtotal -
+                      lastBill.total -
+                      lastBill.membershipDiscount -
+                      lastBill.discountAmount -
+                      lastBill.loyaltyRedeemed -
+                      (lastBill.referralDiscount ?? 0);
+                    return otherDisc > 0 ? (
+                      <div className="inv-tr save">
+                        <span>Coupon / Other Discount</span>
+                        <span>−{fmtCur(otherDisc)}</span>
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="inv-grand">
                     <span className="inv-grand-lbl">Total</span>
                     <span className="inv-grand-val">{fmtCur(lastBill.total)}</span>
