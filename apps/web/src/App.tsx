@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import OfflinePage, { useOnlineStatus } from './pages/user/OfflinePage';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import { Page } from './pages/user/salonData';
@@ -14,6 +14,7 @@ const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
 const AppointmentsPage = lazy(() => import('./pages/appointments/AppointmentsPage'));
 const CustomersPage = lazy(() => import('./pages/customers/CustomersPage'));
 const BillingPage = lazy(() => import('./pages/bill/Billingpage'));
+const GenerateBillPage = lazy(() => import('./pages/generatebill/GenerateBillPage'));
 const AttendancePage = lazy(() => import('./pages/attendance/AttendancePage'));
 const InventoryPage = lazy(() => import('./pages/inventory/InventoryPage'));
 const MembershipPage = lazy(() => import('./pages/membership/MembershipPage'));
@@ -82,6 +83,13 @@ function HomePageRoute() {
   );
 }
 
+// Staff never see the dashboard — they go straight to the Receptionist page
+function DashboardRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'staff') return <Navigate to="/receptionist" replace />;
+  return <DashboardPage />;
+}
+
 // UserLayout + Chatbot together, used only for the public salon route group
 // so the WhatsApp widget never shows on CRM/admin/login pages.
 function UserLayoutWithChatbot() {
@@ -120,7 +128,7 @@ export default function App() {
 
             {/* ── CRM: Any authenticated user ── */}
             <Route element={<ProtectedRoute />}>
-              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/dashboard" element={<DashboardRoute />} />
               <Route path="/appointments" element={<AppointmentsPage />} />
               <Route path="/customers" element={<CustomersPage />} />
               <Route path="/billing" element={<BillingPage />} />
@@ -140,6 +148,7 @@ export default function App() {
               <Route path="/users" element={<Placeholder page="Users" />} />
               <Route path="/roles" element={<Staffrole />} />
               <Route path="/employee-records" element={<EmployeeRecordsPage />} />
+              <Route path="/generatebill" element={<GenerateBillPage />} />
             </Route>
 
             {/* ── Catch-all ── */}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom'; // ← ADD THIS LINE
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -58,6 +58,9 @@ interface SavedBill {
   discountAmount: number;
   loyaltyRedeemed: number;
   referralDiscount?: number;
+  referralCodeUsed?: string;
+  couponCode?: string | null;
+  couponDiscount?: number; // NEW: coupon amount saved on the bill
   total: number;
   paymentMethod: PaymentMethod;
   status: 'paid' | 'pending';
@@ -193,6 +196,29 @@ const isTodayMonthDay = (dateStr?: string): boolean => {
 let _k = 0;
 const nk = () => `k${String(++_k)}`;
 
+// ── Used referral codes per customer phone (stored in the browser) ──────────
+const USED_REF_KEY = 'velvet_used_referral_codes';
+const EDIT_KEY = 'velvet_editing_bill_id'; // NEW: remembers which bill is being edited
+const getLocalUsedCodes = (phoneNo: string): string[] => {
+  try {
+    const all = JSON.parse(localStorage.getItem(USED_REF_KEY) ?? '{}') as Record<string, string[]>;
+    return all[phoneNo] ?? [];
+  } catch {
+    return [];
+  }
+};
+const saveLocalUsedCode = (phoneNo: string, code: string) => {
+  try {
+    const all = JSON.parse(localStorage.getItem(USED_REF_KEY) ?? '{}') as Record<string, string[]>;
+    const list = all[phoneNo] ?? [];
+    if (!list.includes(code.toUpperCase())) list.push(code.toUpperCase());
+    all[phoneNo] = list;
+    localStorage.setItem(USED_REF_KEY, JSON.stringify(all));
+  } catch {
+    /* ignore storage errors */
+  }
+};
+
 function getAggregatedConsumables(
   items: BillItem[],
 ): Map<string, { quantity: number; unit: string }> {
@@ -297,10 +323,28 @@ export default function BillingPage() {
   const [phone, setPhone] = useState('');
   const [searchParams] = useSearchParams(); // ← ADD
   const appointmentId = searchParams.get('appointmentId'); // ← ADD
+  const routerLocation = useLocation();
+  const routerNavigate = useNavigate();
   const [customer, setCustomer] = useState<CustomerInfo | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerDob, setCustomerDob] = useState('');
-  const [editingBillId, setEditingBillId] = useState<string | null>(null);
+  // NEW: initial value is restored from sessionStorage so edit mode is not lost
+  const [editingBillId, setEditingBillIdState] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(EDIT_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const setEditingBillId = (id: string | null) => {
+    setEditingBillIdState(id);
+    try {
+      if (id) sessionStorage.setItem(EDIT_KEY, id);
+      else sessionStorage.removeItem(EDIT_KEY);
+    } catch {
+      /* ignore storage errors */
+    }
+  };
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupState, setLookupState] = useState<'idle' | 'found' | 'new' | 'error'>('idle');
   const [items, setItems] = useState<BillItem[]>([]);
@@ -317,6 +361,7 @@ export default function BillingPage() {
     discountValue: number;
     discountAmount: number;
     description: string;
+    restored?: boolean; // NEW: true when loaded from a saved bill (already used, don't re-validate)
   } | null>(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
@@ -328,6 +373,7 @@ export default function BillingPage() {
   const [lastBill, setLastBill] = useState<SavedBill | null>(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [recentBills, setRecentBills] = useState<SavedBill[]>([]);
+  const [visibleBills, setVisibleBills] = useState(15);
   const [showHistory, setShowHistory] = useState(false);
   const [histLoading, setHistLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -339,6 +385,8 @@ export default function BillingPage() {
   const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null); // ← added
   const [sharingWa, setSharingWa] = useState(false);
   const waLinkRef = useRef<{ billNumber: string; url: string } | null>(null);
+  // NEW: when Edit loads a bill, the next customer lookup must not wipe the restored referral
+  const keepReferralOnLookupRef = useRef(false);
 
   // Amazon-style download toast — shows progress, then success with a "View" action
   const [downloadToast, setDownloadToast] = useState<{
@@ -373,10 +421,19 @@ export default function BillingPage() {
   // ── Free-service reward: past visit count per service for the current phone ──
   const FREE_AFTER = 5; // 5 paid visits → the 6th is free, then the cycle restarts
   const [pastServiceCounts, setPastServiceCounts] = useState<Record<string, number>>({});
+  const [usedReferralCodes, setUsedReferralCodes] = useState<string[]>([]);
+  // Info about the referral applied on the last saved bill (used in the WhatsApp message)
+  const [referralUsedInfo, setReferralUsedInfo] = useState<{
+    billNumber: string;
+    code?: string | undefined;
+    referrerName?: string | undefined;
+    amount: number;
+  } | null>(null);
 
   useEffect(() => {
     if (phone.length < 10) {
       setPastServiceCounts({});
+      setUsedReferralCodes([]);
       return;
     }
     const state = { cancelled: false };
@@ -386,14 +443,21 @@ export default function BillingPage() {
         if (!res.ok) return;
         const bills = (await res.json()) as SavedBill[];
         const counts: Record<string, number> = {};
+        const usedCodes: string[] = [];
         for (const b of bills) {
-          // only paid bills of this client; skip the bill currently being edited
-          if (b.phone !== phone || b.status !== 'paid' || b._id === editingBillId) continue;
+          if (b.phone !== phone || b._id === editingBillId) continue;
+          // any referral code this client has already used on a previous bill
+          if (b.referralCodeUsed) usedCodes.push(b.referralCodeUsed.toUpperCase());
+          // only paid bills count towards the free-service reward
+          if (b.status !== 'paid') continue;
           for (const it of b.items) {
             counts[it.serviceName] = (counts[it.serviceName] ?? 0) + 1;
           }
         }
-        if (!state.cancelled) setPastServiceCounts(counts);
+        if (!state.cancelled) {
+          setPastServiceCounts(counts);
+          setUsedReferralCodes(usedCodes);
+        }
       } catch {
         /* advisory — no reward if history can't load */
       }
@@ -562,10 +626,15 @@ export default function BillingPage() {
       const found = data.find((c) => c.phone === p);
       setCustomer(found ?? null);
       setLookupState(found ? 'found' : 'new');
-      setSelectedReferralIds([]); // ← ADD THIS LINE: reset toggles for the new lookup
-      setFriendReferralOn(false);
-      setAppliedReferralCode(null);
-      setReferralCodeError('');
+      if (keepReferralOnLookupRef.current) {
+        // NEW: this lookup was caused by "Edit" — keep the restored referral, just reset the flag
+        keepReferralOnLookupRef.current = false;
+      } else {
+        setSelectedReferralIds([]); // reset toggles for the new lookup
+        setFriendReferralOn(false);
+        setAppliedReferralCode(null);
+        setReferralCodeError('');
+      }
 
       // ← ADD THIS BLOCK: the search endpoint returns a lightweight record
       // that doesn't include `referrals` — fetch the full customer detail
@@ -606,7 +675,7 @@ export default function BillingPage() {
   const fetchRecent = useCallback(async () => {
     setHistLoading(true);
     try {
-      const res = await fetch(`${API}/bills?limit=15`, { headers: hdr() });
+      const res = await fetch(`${API}/bills?limit=1000`, { headers: hdr() });
       if (!res.ok) throw new Error();
       setRecentBills((await res.json()) as SavedBill[]);
     } catch {
@@ -755,6 +824,17 @@ export default function BillingPage() {
   const applyReferralCode = async () => {
     const code = referralCodeInput.trim().toUpperCase();
     if (!code) return;
+    // Same client can't reuse a code they've already redeemed (a new code is fine)
+    const alreadyUsed =
+      usedReferralCodes.includes(code) ||
+      getLocalUsedCodes(phone).includes(code) ||
+      (customer?.referredByCode?.toUpperCase() === code && customer.visitCount > 0);
+    if (alreadyUsed) {
+      setReferralCodeError(
+        'This referral code was already used by this customer. Please enter a different code.',
+      );
+      return;
+    }
     setReferralCodeLoading(true);
     setReferralCodeError('');
     try {
@@ -799,7 +879,7 @@ export default function BillingPage() {
   // Silently re-check the applied coupon whenever the pre-coupon total shifts
   // (items or manual discount edited) so the shown amount stays accurate.
   useEffect(() => {
-    if (!appliedCoupon) return;
+    if (!appliedCoupon || appliedCoupon.restored) return; // NEW: restored coupon is already used, skip validation
     const t = setTimeout(() => {
       void applyCoupon(appliedCoupon.code, true);
     }, 300);
@@ -850,7 +930,7 @@ export default function BillingPage() {
       discountType,
       discountValue: dv,
       discountAmount: manualDisc + freeServiceDisc,
-      couponCode: appliedCoupon?.code,
+      couponCode: appliedCoupon?.code ?? '', // NEW: '' tells the PATCH route to clear a removed coupon
       loyaltyRedeemed: loyaltyDisc,
       total,
       paymentMethod,
@@ -888,6 +968,22 @@ export default function BillingPage() {
       setReferralCode(customer?.referralCode ?? null);
 
       setLastBill(bill);
+      // remember this code as used by this customer so it can't be applied again
+      if (appliedReferralCode?.code) saveLocalUsedCode(phone, appliedReferralCode.code);
+      setReferralUsedInfo(
+        referralDisc > 0
+          ? {
+              billNumber: bill.billNumber,
+              code:
+                appliedReferralCode?.code ??
+                (friendEligible && friendReferralOn ? customer.referredByCode : undefined),
+              ...(appliedReferralCode?.referrerName
+                ? { referrerName: appliedReferralCode.referrerName }
+                : {}),
+              amount: referralDisc,
+            }
+          : null,
+      );
       setInvoiceOccasion(
         isCustomerBirthdayToday || isCustomerAnniversaryToday
           ? { birthday: isCustomerBirthdayToday, anniversary: isCustomerAnniversaryToday }
@@ -1064,6 +1160,16 @@ export default function BillingPage() {
     const referralLine = referralCode
       ? `\n${E(0x1f91d)} Refer a friend to Velvet with your referral code *${referralCode}* and enjoy rewards!\n`
       : '';
+    // Referral discount actually applied on this bill (works for reopened bills too)
+    const refInfo = referralUsedInfo?.billNumber === b.billNumber ? referralUsedInfo : null;
+    const refAmt = b.referralDiscount ?? refInfo?.amount ?? 0;
+    const refCode = refInfo?.code ?? b.referralCodeUsed;
+    const referralAppliedLine =
+      refAmt > 0
+        ? `${E(0x1f91d)} Referral discount${refCode ? ` (code *${refCode}*)` : ''}${
+            refInfo?.referrerName ? ` — referred by ${refInfo.referrerName}` : ''
+          }: −${fmtCur(refAmt)}\n`
+        : '';
     const msg =
       `*Velvet Premium Unisex Salon*\n` +
       `Invoice #${b.billNumber}\n` +
@@ -1072,6 +1178,7 @@ export default function BillingPage() {
       `${lines}\n\n` +
       `Subtotal: ${fmtCur(b.subtotal)}\n` +
       (disc > 0 ? `Discount: −${fmtCur(disc)}\n` : '') +
+      referralAppliedLine +
       `*Total: ${fmtCur(b.total)}*\n` +
       `Payment: ${b.paymentMethod.toUpperCase()}\n` +
       couponLine +
@@ -1105,20 +1212,68 @@ export default function BillingPage() {
 
   const startEditBill = (bill: SavedBill) => {
     setEditingBillId(bill._id);
+    // NEW: a lookup will only fire if the phone actually changes
+    keepReferralOnLookupRef.current = bill.phone !== phone && bill.phone.length >= 10;
     setPhone(bill.phone);
     setItems(bill.items.map((i) => ({ ...i, price: i.originalPrice ?? i.price, _key: nk() })));
-    setDiscountType('percent');
-    setDiscountValue(0);
+    // NEW: whatever discount isn't stored separately on the bill = the coupon
+    const leftover = Math.max(
+      0,
+      bill.subtotal -
+        bill.total -
+        bill.membershipDiscount -
+        bill.discountAmount -
+        bill.loyaltyRedeemed -
+        (bill.referralDiscount ?? 0),
+    );
+    const couponAmt = bill.couponDiscount || leftover;
+
+    // NEW: put the saved manual discount back as a flat amount
+    setDiscountType('flat');
+    setDiscountValue(bill.discountAmount > 0 ? bill.discountAmount : 0);
+
     setRedeemLoyalty(bill.loyaltyRedeemed > 0);
     setLoyaltyInput(bill.loyaltyRedeemed || 0);
-    setAppliedCoupon(null);
+    setAppliedCoupon(
+      couponAmt > 0
+        ? {
+            code: bill.couponCode ?? 'COUPON',
+            discountType: 'flat',
+            discountValue: couponAmt,
+            discountAmount: couponAmt,
+            description: 'Applied on this bill',
+            restored: true,
+          }
+        : null,
+    );
     setCouponCode('');
     setCouponError('');
+    // NEW: restore the referral discount saved on the bill
+    setSelectedReferralIds([]);
+    setFriendReferralOn(false);
+    setReferralCodeError('');
+    setAppliedReferralCode(
+      (bill.referralDiscount ?? 0) > 0
+        ? {
+            code: bill.referralCodeUsed ?? 'REFERRAL',
+            referrerName: 'saved referral',
+          }
+        : null,
+    );
     setPaymentMethod(bill.paymentMethod);
     setNotes(bill.notes);
     setApptDate(bill.date ?? null);
     setShowHistory(false);
   };
+
+  // Opened from the All Bills page with an "Edit" click → load that bill for editing
+  useEffect(() => {
+    const incoming = (routerLocation.state as { editBill?: SavedBill } | null)?.editBill;
+    if (!incoming) return;
+    startEditBill(incoming);
+    void routerNavigate(routerLocation.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation.state]);
 
   const deleteBill = async (b: SavedBill) => {
     if (!window.confirm(`Delete bill #${b.billNumber}? This cannot be undone.`)) return;
@@ -1542,6 +1697,31 @@ export default function BillingPage() {
                 </span>
               ))}
             </div>
+          </div>
+        )}
+        {/* NEW: shows when an existing bill is being edited */}
+        {editingBillId && (
+          <div
+            className="bl-stock-warn"
+            style={{ background: '#eff6ff', borderBottomColor: '#bfdbfe', color: '#1d4ed8' }}
+          >
+            <Ic n="info" s={14} />
+            <span style={{ fontWeight: 500 }}>Editing an existing bill</span> — saving will update
+            it, not create a new bill.
+            <button
+              className="bl-btn bl-btn-secondary bl-btn-sm"
+              style={{ marginLeft: 'auto' }}
+              onClick={() => {
+                setEditingBillId(null);
+                setItems([]);
+                setPhone('');
+                setDiscountValue(0);
+                setAppliedCoupon(null);
+                setAppliedReferralCode(null);
+              }}
+            >
+              Cancel edit
+            </button>
           </div>
         )}
 
@@ -2595,7 +2775,7 @@ export default function BillingPage() {
                       No recent bills
                     </div>
                   ) : (
-                    recentBills.map((b) => (
+                    recentBills.slice(0, visibleBills).map((b) => (
                       <div key={b._id} className="bl-hist-item">
                         <div
                           style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
@@ -2661,6 +2841,17 @@ export default function BillingPage() {
                         </div>
                       </div>
                     ))
+                  )}
+                  {recentBills.length > visibleBills && (
+                    <button
+                      className="bl-btn bl-btn-secondary bl-btn-sm"
+                      style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}
+                      onClick={() => {
+                        setVisibleBills((n) => n + 15);
+                      }}
+                    >
+                      Show more ({recentBills.length - visibleBills} remaining)
+                    </button>
                   )}
                 </div>
               )}

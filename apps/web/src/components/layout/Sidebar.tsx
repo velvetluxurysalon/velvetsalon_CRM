@@ -8,7 +8,7 @@ const allNavItems = [
     icon: 'chart',
     label: 'Dashboard',
     path: '/dashboard',
-    roles: ['admin', 'receptionist', 'staff'],
+    roles: ['admin', 'receptionist'],
   },
   {
     icon: 'calendar',
@@ -18,6 +18,7 @@ const allNavItems = [
   },
   { icon: 'users', label: 'Customers', path: '/customers', roles: ['admin', 'receptionist'] },
   { icon: 'receipt', label: 'Billing', path: '/billing', roles: ['admin', 'receptionist'] },
+  { icon: 'clipboard', label: 'All Bills', path: '/generatebill', roles: ['admin'] },
   {
     icon: 'tag',
     label: 'Daily Expenses',
@@ -51,7 +52,7 @@ const allNavItems = [
     icon: 'headset',
     label: 'Receptionist',
     path: '/receptionist',
-    roles: ['admin', 'receptionist'],
+    roles: ['admin', 'receptionist', 'staff'],
   },
   { icon: 'tag', label: 'Coupons', path: '/coupons', roles: ['admin', 'receptionist'] },
 ];

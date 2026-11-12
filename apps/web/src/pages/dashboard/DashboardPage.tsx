@@ -861,7 +861,29 @@ export default function DashboardPage() {
     const wb = XLSX.utils.book_new();
 
     const kpiRows = visibleKpis.map((k) => [k.label, k.value, k.change]);
-    const kpiSheet = XLSX.utils.aoa_to_sheet([['Metric', 'Value', 'Change'], ...kpiRows]);
+
+    // NEW: Payment breakdown (Cash / Card / UPI) shown right under the KPIs
+    const kpiPaymentRows =
+      isAdmin || isReceptionist
+        ? [
+            [],
+            ['Payment Method', 'Bills', 'Amount (₹)'],
+            ...derived.paymentMix.map((p) => [PAYMENT_CFG[p.method].label, p.count, p.amount]),
+            [
+              'Total',
+              derived.paymentMix.reduce((s, p) => s + p.count, 0),
+              derived.paymentMix.reduce((s, p) => s + p.amount, 0),
+            ],
+          ]
+        : [];
+
+    const kpiSheet = XLSX.utils.aoa_to_sheet([
+      ['Metric', 'Value', 'Change'],
+      ...kpiRows,
+      ...kpiPaymentRows,
+    ]);
+    // NEW: wider columns so names like "Today's Revenue" are not cut off
+    kpiSheet['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPIs');
 
     const apptHeader = ['Customer', 'Service', 'Time', 'Staff', 'Status'];

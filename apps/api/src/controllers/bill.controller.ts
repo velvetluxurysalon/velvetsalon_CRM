@@ -756,7 +756,10 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
     } = body;
 
     // ← ADD THIS BLOCK
-    const { redeemedReferralIds } = req.body as { redeemedReferralIds?: string[] };
+    const { redeemedReferralIds, referralDiscount } = req.body as {
+      redeemedReferralIds?: string[];
+      referralDiscount?: number;
+    };
 
     if (items !== undefined && (!Array.isArray(items) || items.length === 0)) {
       res.status(400).json({ message: 'items must be a non-empty array.' });
@@ -799,6 +802,7 @@ export const updateBill = async (req: Request, res: Response): Promise<void> => 
     if (status !== undefined) bill.status = status;
     if (notes !== undefined) bill.notes = notes;
     if (date !== undefined) bill.date = date;
+    if (referralDiscount !== undefined) bill.referralDiscount = referralDiscount; // NEW
 
     // ── Recompute coupon discount server-side, if a coupon change was sent ──
     // Uses the bill's own (now-updated) subtotal/membershipDiscount/discountAmount

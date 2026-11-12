@@ -200,6 +200,13 @@ const avgServiceRating = (services?: ServiceRecord[]): number | null => {
   return Math.round((rated.reduce((sum, s) => sum + s.rating, 0) / rated.length) * 10) / 10;
 };
 
+/** Total spent = sum of visit totals when visits are loaded; falls back to the stored value. */
+const calcTotalSpent = (c?: Customer | null): number => {
+  if (!c) return 0;
+  if (c.visits) return c.visits.reduce((sum, v) => sum + (v.total || 0), 0);
+  return c.totalSpent ?? 0;
+};
+
 const emptyCustomer = (): Omit<
   Customer,
   | '_id'
@@ -552,6 +559,10 @@ export default function CustomersPage() {
   // Average customer rating across this customer's rated service records
   // (sourced from ServiceRecord.rating — same field the Services tab table renders).
   const selectedAvgRating = useMemo(() => avgServiceRating(selected?.services), [selected]);
+
+  // Total spent for the selected customer, calculated from the visit records
+  // (same data the Visits tab renders) so the numbers always match.
+  const selectedTotalSpent = useMemo(() => calcTotalSpent(selected), [selected]);
 
   return (
     <>
@@ -941,7 +952,9 @@ export default function CustomersPage() {
                           {c.visitCount ?? 0} visits
                         </div>
                         <div style={{ fontSize: 11, color: '#b8860b', marginTop: 2 }}>
-                          {fmtCur(c.totalSpent ?? 0)}
+                          {fmtCur(
+                            selected?._id === c._id ? selectedTotalSpent : (c.totalSpent ?? 0),
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1030,9 +1043,9 @@ export default function CustomersPage() {
                     },
                     {
                       label: 'Total Spend',
-                      value: fmtCur(selected.totalSpent ?? 0),
+                      value: fmtCur(selectedTotalSpent),
                       sub: selected.visitCount
-                        ? `Avg ₹${Math.round((selected.totalSpent ?? 0) / selected.visitCount).toLocaleString('en-IN')}/visit`
+                        ? `Avg ₹${Math.round(selectedTotalSpent / selected.visitCount).toLocaleString('en-IN')}/visit`
                         : '—',
                     },
                     {
@@ -1131,7 +1144,7 @@ export default function CustomersPage() {
                         </div>
                         <div className="cm-info-row">
                           <span className="cm-info-lbl">Total Spend</span>
-                          <span className="cm-info-val">{fmtCur(selected.totalSpent ?? 0)}</span>
+                          <span className="cm-info-val">{fmtCur(selectedTotalSpent)}</span>
                         </div>
                         <div className="cm-info-row">
                           <span className="cm-info-lbl">Loyalty Pts</span>
@@ -1384,9 +1397,7 @@ export default function CustomersPage() {
                         </div>
                         <div className="cm-loyalty-card">
                           <div className="cm-loyalty-card-icon">💰</div>
-                          <div className="cm-loyalty-card-val">
-                            {fmtCur(selected.totalSpent ?? 0)}
-                          </div>
+                          <div className="cm-loyalty-card-val">{fmtCur(selectedTotalSpent)}</div>
                           <div className="cm-loyalty-card-lbl">Lifetime Spend</div>
                         </div>
                         <div className="cm-loyalty-card">
