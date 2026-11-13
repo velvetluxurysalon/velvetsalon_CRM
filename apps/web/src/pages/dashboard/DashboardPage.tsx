@@ -259,6 +259,83 @@ const ageFromDob = (dob: string): number | null => {
   return age;
 };
 
+// ─── WhatsApp helpers ────────────────────────────────────────────────────────
+const SALON_NAME = 'Velvet Premium Unisex Salon';
+
+// Normalises Indian numbers to the international format wa.me expects.
+const toWhatsAppNumber = (phone: string) => {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith('0')) return `91${digits.slice(1)}`;
+  return digits;
+};
+
+const buildWhatsAppMessage = (cat: NotifCategory, n: NotifItem) => {
+  const first = n.name.split(' ')[0] ?? 'there';
+  switch (cat) {
+    case 'birthdays':
+      return `Hi ${first}, wishing you a very Happy Birthday! 🎉 Visit ${SALON_NAME} and treat yourself to something special. 💛`;
+    case 'anniversaries':
+      return `Hi ${first}, Happy Anniversary! 💖 Celebrate with a pampering session at ${SALON_NAME}.`;
+    case 'membership':
+      return n.detail.startsWith('Expired')
+        ? `Hi ${first}, your membership at ${SALON_NAME} has expired. Renew now to keep enjoying your benefits!`
+        : `Hi ${first}, your membership at ${SALON_NAME} ${n.detail.toLowerCase()}. Renew soon to keep your benefits!`;
+    case 'rebooking':
+      return `Hi ${first}, it's time for your next visit to ${SALON_NAME}! Book your appointment today. ✨`;
+    case 'inactive':
+      return `Hi ${first}, we miss you at ${SALON_NAME}! Come back soon — we have something special for you. 💛`;
+  }
+};
+
+// ─── Export helpers ──────────────────────────────────────────────────────────
+type ExportMode = 'day' | 'month' | 'year' | 'custom';
+interface ExportRange {
+  from: string;
+  to: string;
+  label: string;
+  tag: string; // used in the file name
+}
+
+const getExportRange = (
+  mode: ExportMode,
+  day: string,
+  month: string,
+  year: string,
+  from: string,
+  to: string,
+): ExportRange | null => {
+  const nice = (ds: string) =>
+    new Date(ds + 'T00:00:00').toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  if (mode === 'day') {
+    if (!day) return null;
+    return { from: day, to: day, label: nice(day), tag: day };
+  }
+  if (mode === 'month') {
+    if (!month) return null;
+    const [y = 0, m = 1] = month.split('-').map(Number);
+    const last = dateStr(new Date(y, m, 0));
+    const label = new Date(y, m - 1, 1).toLocaleDateString('en-IN', {
+      month: 'long',
+      year: 'numeric',
+    });
+    return { from: `${month}-01`, to: last, label, tag: month };
+  }
+  if (mode === 'year') {
+    if (!year) return null;
+    return { from: `${year}-01-01`, to: `${year}-12-31`, label: year, tag: year };
+  }
+  if (!from || !to || from > to) return null;
+  return { from, to, label: `${nice(from)} – ${nice(to)}`, tag: `${from}_to_${to}` };
+};
+
+const escHtml = (v: string | number) =>
+  String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 // ─── Status badge config (expanded to cover all real appointment statuses) ──
 const statusStyle: Record<ApptStatus, { bg: string; color: string; label: string }> = {
   confirmed: { bg: '#eaf3de', color: '#3b6d11', label: 'Confirmed' },
@@ -386,6 +463,37 @@ export default function DashboardPage() {
       document.removeEventListener('mousedown', onClick);
     };
   }, [notifOpen]);
+
+  // ── Export panel state ──────────────────────────────────────────────────
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<ExportMode>('day');
+  const [exportDay, setExportDay] = useState(selectedDate);
+  const [exportMonth, setExportMonth] = useState(todayStr.slice(0, 7));
+  const [exportYear, setExportYear] = useState(todayStr.slice(0, 4));
+  const [exportFrom, setExportFrom] = useState(addDays(todayStr, -6));
+  const [exportTo, setExportTo] = useState(todayStr);
+  const [exporting, setExporting] = useState<'excel' | 'word' | null>(null);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [exportOpen]);
+
+  const exportRange = getExportRange(
+    exportMode,
+    exportDay,
+    exportMonth,
+    exportYear,
+    exportFrom,
+    exportTo,
+  );
 
   // ── Fetch everything the dashboard needs ────────────────────────────────
   const fetchDashboardData = useCallback(
@@ -856,146 +964,295 @@ export default function DashboardPage() {
   // Notifications are shown to admin/receptionist only (CRM-facing roles)
   const showNotifications = isAdmin || isReceptionist;
 
-  // ── Excel export: KPIs + today's appointments + attendance + top staff ──
-  const downloadExcel = () => {
+  // ── Report builder: fetches its own data for any date range ─────────────
+  const buildReport = async (from: string, to: string) => {
+    const get = async <T,>(path: string): Promise<T[]> => {
+      try {
+        const r = await fetch(`${API_BASE}${path}`, { headers: authHeaders() });
+        return r.ok ? ((await r.json().catch(() => [])) as T[]) : [];
+      } catch {
+        return [];
+      }
+    };
+
+    const [billsAll, apptAll, expAll, attAll] = await Promise.all([
+      get<SavedBill>('/api/bills?limit=5000'),
+      get<Appointment>(`/api/appointments?from=${from}&to=${to}`),
+      get<ExpenseLite>(`/api/daily-expenses?from=${from}&to=${to}`),
+      get<AttendanceRecord>(`/api/attendance?from=${from}&to=${to}`),
+    ]);
+
+    const inRange = (d: string) => d >= from && d <= to;
+    const billDate = (b: SavedBill) => dateStr(new Date(b.createdAt));
+    const canSeeAll = isAdmin || isReceptionist;
+
+    const paid = billsAll.filter((b) => b.status === 'paid' && inRange(billDate(b)));
+    const appts = apptAll
+      .filter((a) => inRange(a.date.slice(0, 10)))
+      .map((a) => ({ ...a, staffName: staffNameById.get(a.staff) ?? a.staff }))
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const myAppts = canSeeAll ? appts : appts.filter((a) => a.staffName === user?.name);
+    const exps = expAll.filter((e) => inRange(e.date.slice(0, 10)));
+    const att = attAll.filter((r) => inRange(r.date.slice(0, 10)));
+
+    const revenue = paid.reduce((s, b) => s + b.total, 0);
+    const expenseTotal = exps.reduce((s, e) => s + e.amount, 0);
+    const avgBill = paid.length ? revenue / paid.length : 0;
+    const newCustomers = customers.filter((c) => inRange(c.joinDate.slice(0, 10))).length;
+
+    const summary: string[][] = [];
+    if (canSeeAll) {
+      summary.push(
+        ['Total Revenue', fmtCur(revenue)],
+        ['Paid Bills', String(paid.length)],
+        ['Avg. Bill Value', fmtCur(avgBill)],
+        ['Total Expenses', fmtCur(expenseTotal)],
+        ['Net (Revenue − Expenses)', fmtCur(revenue - expenseTotal)],
+        ['New Customers', String(newCustomers)],
+      );
+    }
+    summary.push(['Appointments', String(myAppts.length)]);
+
+    const paymentMix = (['cash', 'card', 'upi'] as const).map((m) => {
+      const list = paid.filter((b) => b.paymentMethod === m);
+      return {
+        label: PAYMENT_CFG[m].label,
+        count: list.length,
+        amount: list.reduce((s, b) => s + b.total, 0),
+      };
+    });
+
+    const dayMap = new Map<string, { bills: number; revenue: number; expenses: number }>();
+    const bump = (d: string) => {
+      let v = dayMap.get(d);
+      if (!v) {
+        v = { bills: 0, revenue: 0, expenses: 0 };
+        dayMap.set(d, v);
+      }
+      return v;
+    };
+    paid.forEach((b) => {
+      const v = bump(billDate(b));
+      v.bills += 1;
+      v.revenue += b.total;
+    });
+    exps.forEach((e) => {
+      bump(e.date.slice(0, 10)).expenses += e.amount;
+    });
+    const daily = Array.from(dayMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => ({ date, ...v }));
+
+    const attendanceCounts = {
+      present: att.filter((r) => r.status === 'present').length,
+      late: att.filter((r) => r.status === 'late').length,
+      halfDay: att.filter((r) => r.status === 'half-day').length,
+      absent: att.filter((r) => r.status === 'absent').length,
+    };
+
+    const topStaff = staff
+      .filter((s) => s.status !== 'inactive')
+      .map((s) => {
+        let rev = 0;
+        let count = 0;
+        paid.forEach((b) => {
+          b.items.forEach((it) => {
+            if (it.staffId === s._id) {
+              rev += it.price;
+              count += 1;
+            }
+          });
+        });
+        const ratings: number[] = [];
+        appts.forEach((a) => {
+          if (a.staff === s._id && a.status === 'completed' && typeof a.staffRating === 'number')
+            ratings.push(a.staffRating);
+        });
+        paid.forEach((b) => {
+          if (typeof b.staffRating === 'number' && b.items.some((it) => it.staffId === s._id))
+            ratings.push(b.staffRating);
+        });
+        return {
+          name: s.name,
+          servicesCount: count,
+          revenue: rev,
+          ratingAvg: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null,
+        };
+      })
+      .filter((s) => s.revenue > 0 || s.servicesCount > 0)
+      .sort((a, b) => b.revenue - a.revenue);
+
+    return { summary, paymentMix, daily, myAppts, attendanceCounts, topStaff, canSeeAll };
+  };
+  type ReportData = Awaited<ReturnType<typeof buildReport>>;
+
+  // ── Excel export ────────────────────────────────────────────────────────
+  const writeExcel = (r: ReportData, range: ExportRange) => {
     const wb = XLSX.utils.book_new();
 
-    const kpiRows = visibleKpis.map((k) => [k.label, k.value, k.change]);
-
-    // NEW: Payment breakdown (Cash / Card / UPI) shown right under the KPIs
-    const kpiPaymentRows =
-      isAdmin || isReceptionist
-        ? [
-            [],
-            ['Payment Method', 'Bills', 'Amount (₹)'],
-            ...derived.paymentMix.map((p) => [PAYMENT_CFG[p.method].label, p.count, p.amount]),
-            [
-              'Total',
-              derived.paymentMix.reduce((s, p) => s + p.count, 0),
-              derived.paymentMix.reduce((s, p) => s + p.amount, 0),
-            ],
-          ]
-        : [];
-
-    const kpiSheet = XLSX.utils.aoa_to_sheet([
-      ['Metric', 'Value', 'Change'],
-      ...kpiRows,
-      ...kpiPaymentRows,
+    const sumSheet = XLSX.utils.aoa_to_sheet([
+      ['Velvet CRM — Dashboard Report'],
+      ['Period', range.label],
+      [],
+      ['Metric', 'Value'],
+      ...r.summary,
     ]);
-    // NEW: wider columns so names like "Today's Revenue" are not cut off
-    kpiSheet['!cols'] = [{ wch: 22 }, { wch: 14 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(wb, kpiSheet, 'KPIs');
+    sumSheet['!cols'] = [{ wch: 28 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, sumSheet, 'Summary');
 
-    const apptHeader = ['Customer', 'Service', 'Time', 'Staff', 'Status'];
-    const apptRows = visibleAppointments.map((a) => [
-      a.customer,
-      a.service,
-      fmtTime12(a.time),
-      a.staffName,
-      statusStyle[a.status].label,
+    if (r.canSeeAll) {
+      const paySheet = XLSX.utils.aoa_to_sheet([
+        ['Payment Method', 'Bills', 'Amount (₹)'],
+        ...r.paymentMix.map((p) => [p.label, p.count, p.amount]),
+        [
+          'Total',
+          r.paymentMix.reduce((s, p) => s + p.count, 0),
+          r.paymentMix.reduce((s, p) => s + p.amount, 0),
+        ],
+      ]);
+      paySheet['!cols'] = [{ wch: 18 }, { wch: 10 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, paySheet, 'Payments');
+
+      const dailySheet = XLSX.utils.aoa_to_sheet([
+        ['Date', 'Bills', 'Revenue (₹)', 'Expenses (₹)'],
+        ...r.daily.map((d) => [d.date, d.bills, d.revenue, d.expenses]),
+      ]);
+      dailySheet['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, dailySheet, 'Daily');
+    }
+
+    const apptSheet = XLSX.utils.aoa_to_sheet([
+      ['Date', 'Customer', 'Service', 'Time', 'Staff', 'Status'],
+      ...r.myAppts.map((a) => [
+        a.date.slice(0, 10),
+        a.customer,
+        a.service,
+        fmtTime12(a.time),
+        a.staffName,
+        statusStyle[a.status].label,
+      ]),
     ]);
-    const apptSheet = XLSX.utils.aoa_to_sheet([apptHeader, ...apptRows]);
+    apptSheet['!cols'] = [
+      { wch: 12 },
+      { wch: 22 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 14 },
+    ];
     XLSX.utils.book_append_sheet(wb, apptSheet, 'Appointments');
 
-    if (isAdmin || isReceptionist) {
+    if (r.canSeeAll) {
       const attSheet = XLSX.utils.aoa_to_sheet([
         ['Status', 'Count'],
-        ['Present', attendanceSummary.present],
-        ['Late', attendanceSummary.late],
-        ['Half Day', attendanceSummary.halfDay],
-        ['Absent', attendanceSummary.absent],
-        ['Not Marked', attendanceSummary.notMarked],
+        ['Present', r.attendanceCounts.present],
+        ['Late', r.attendanceCounts.late],
+        ['Half Day', r.attendanceCounts.halfDay],
+        ['Absent', r.attendanceCounts.absent],
       ]);
       XLSX.utils.book_append_sheet(wb, attSheet, 'Attendance');
     }
 
-    if (isAdmin && derived.topStaff.length > 0) {
-      const topHeader = ['Staff', 'Services', 'Revenue', 'Avg Rating'];
-      const topRows = derived.topStaff.map((s) => [
-        s.name,
-        s.servicesCount,
-        s.revenue,
-        s.ratingAvg !== null ? s.ratingAvg.toFixed(1) : '—',
+    if (isAdmin && r.topStaff.length > 0) {
+      const topSheet = XLSX.utils.aoa_to_sheet([
+        ['Staff', 'Services', 'Revenue (₹)', 'Avg Rating'],
+        ...r.topStaff.map((s) => [
+          s.name,
+          s.servicesCount,
+          s.revenue,
+          s.ratingAvg !== null ? s.ratingAvg.toFixed(1) : '—',
+        ]),
       ]);
-      const topSheet = XLSX.utils.aoa_to_sheet([topHeader, ...topRows]);
+      topSheet['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 16 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, topSheet, 'Top Staff');
     }
 
-    XLSX.writeFile(wb, `dashboard_${selectedDate}.xlsx`);
+    XLSX.writeFile(wb, `dashboard_${range.tag}.xlsx`);
   };
 
-  // ── Word export: a single readable summary document (.doc, opens in Word) ──
-  const downloadWord = () => {
-    const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
+  // ── Word export (.doc, opens in Word) ───────────────────────────────────
+  const writeWord = (r: ReportData, range: ExportRange) => {
+    const table = (headers: string[], rows: (string | number)[][]) =>
+      `<table border="1" cellpadding="6" cellspacing="0">
+        <tr>${headers.map((h) => `<th>${escHtml(h)}</th>`).join('')}</tr>
+        ${rows.map((row) => `<tr>${row.map((c) => `<td>${escHtml(c)}</td>`).join('')}</tr>`).join('')}
+      </table>`;
 
-    const kpiRowsHtml = visibleKpis
-      .map((k) => `<tr><td>${k.label}</td><td>${k.value}</td><td>${k.change}</td></tr>`)
-      .join('');
+    const sections: string[] = [];
+    sections.push(`<h2>Key Metrics</h2>${table(['Metric', 'Value'], r.summary)}`);
 
-    const apptRowsHtml = visibleAppointments
-      .map(
-        (a) =>
-          `<tr><td>${a.customer}</td><td>${a.service}</td><td>${fmtTime12(a.time)}</td><td>${a.staffName}</td><td>${statusStyle[a.status].label}</td></tr>`,
-      )
-      .join('');
+    if (r.canSeeAll) {
+      sections.push(
+        `<h2>Payment Methods</h2>${table(
+          ['Method', 'Bills', 'Amount'],
+          r.paymentMix.map((p) => [p.label, p.count, fmtCur(p.amount)]),
+        )}`,
+      );
+      if (r.daily.length > 0) {
+        sections.push(
+          `<h2>Daily Breakdown</h2>${table(
+            ['Date', 'Bills', 'Revenue', 'Expenses'],
+            r.daily.map((d) => [d.date, d.bills, fmtCur(d.revenue), fmtCur(d.expenses)]),
+          )}`,
+        );
+      }
+    }
 
-    const attHtml =
-      isAdmin || isReceptionist
-        ? `
-      <h2>Staff Attendance</h2>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Present</th><th>Late</th><th>Half Day</th><th>Absent</th><th>Not Marked</th></tr>
-        <tr>
-          <td>${String(attendanceSummary.present)}</td>
-          <td>${String(attendanceSummary.late)}</td>
-          <td>${String(attendanceSummary.halfDay)}</td>
-          <td>${String(attendanceSummary.absent)}</td>
-          <td>${String(attendanceSummary.notMarked)}</td>
-        </tr>
-      </table>`
-        : '';
+    sections.push(
+      `<h2>${r.canSeeAll ? 'Appointments' : 'My Appointments'}</h2>${
+        r.myAppts.length
+          ? table(
+              ['Date', 'Customer', 'Service', 'Time', 'Staff', 'Status'],
+              r.myAppts.map((a) => [
+                a.date.slice(0, 10),
+                a.customer,
+                a.service,
+                fmtTime12(a.time),
+                a.staffName,
+                statusStyle[a.status].label,
+              ]),
+            )
+          : '<p>No appointments</p>'
+      }`,
+    );
 
-    const topStaffHtml =
-      isAdmin && derived.topStaff.length > 0
-        ? `
-      <h2>Top Staff (This Month)</h2>
-      <table border="1" cellpadding="6" cellspacing="0">
-        <tr><th>Staff</th><th>Services</th><th>Revenue</th><th>Avg Rating</th></tr>
-        ${derived.topStaff
-          .map(
-            (s) =>
-              `<tr><td>${s.name}</td><td>${String(s.servicesCount)}</td><td>${fmtCur(s.revenue)}</td><td>${s.ratingAvg !== null ? s.ratingAvg.toFixed(1) : '—'}</td></tr>`,
-          )
-          .join('')}
-      </table>`
-        : '';
+    if (r.canSeeAll) {
+      sections.push(
+        `<h2>Staff Attendance</h2>${table(
+          ['Present', 'Late', 'Half Day', 'Absent'],
+          [
+            [
+              r.attendanceCounts.present,
+              r.attendanceCounts.late,
+              r.attendanceCounts.halfDay,
+              r.attendanceCounts.absent,
+            ],
+          ],
+        )}`,
+      );
+    }
+
+    if (isAdmin && r.topStaff.length > 0) {
+      sections.push(
+        `<h2>Top Staff</h2>${table(
+          ['Staff', 'Services', 'Revenue', 'Avg Rating'],
+          r.topStaff.map((s) => [
+            s.name,
+            s.servicesCount,
+            fmtCur(s.revenue),
+            s.ratingAvg !== null ? s.ratingAvg.toFixed(1) : '—',
+          ]),
+        )}`,
+      );
+    }
 
     const html = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
       <head><meta charset="utf-8"><title>Dashboard Report</title></head>
       <body style="font-family:Calibri,Arial,sans-serif;">
         <h1>Velvet CRM — Dashboard Report</h1>
-        <p>${dateLabel}</p>
-
-        <h2>Key Metrics</h2>
-        <table border="1" cellpadding="6" cellspacing="0">
-          <tr><th>Metric</th><th>Value</th><th>Change</th></tr>
-          ${kpiRowsHtml}
-        </table>
-
-        <h2>${isAdmin || isReceptionist ? "Today's Appointments" : 'My Appointments Today'}</h2>
-        <table border="1" cellpadding="6" cellspacing="0">
-          <tr><th>Customer</th><th>Service</th><th>Time</th><th>Staff</th><th>Status</th></tr>
-          ${apptRowsHtml || '<tr><td colspan="5">No appointments</td></tr>'}
-        </table>
-
-        ${attHtml}
-        ${topStaffHtml}
+        <p>${escHtml(range.label)}</p>
+        ${sections.join('\n')}
       </body>
       </html>`;
 
@@ -1003,9 +1260,28 @@ export default function DashboardPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dashboard_${selectedDate}.doc`;
+    a.download = `dashboard_${range.tag}.doc`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // ── Runs the export for the period chosen in the Export panel ───────────
+  const runExport = async (type: 'excel' | 'word') => {
+    if (!exportRange) {
+      setApiError('Please choose a valid date range (From must not be after To).');
+      return;
+    }
+    setExporting(type);
+    try {
+      const report = await buildReport(exportRange.from, exportRange.to);
+      if (type === 'excel') writeExcel(report, exportRange);
+      else writeWord(report, exportRange);
+      setExportOpen(false);
+    } catch (e: unknown) {
+      setApiError(e instanceof Error ? e.message : 'Failed to generate report.');
+    } finally {
+      setExporting(null);
+    }
   };
 
   return (
@@ -1094,54 +1370,170 @@ export default function DashboardPage() {
                   ›
                 </button>
               </div>
-              <button
-                className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-2.5 text-[#6b5740] transition-colors hover:border-[#d4af37] hover:bg-[#f0e8d8]"
-                onClick={downloadExcel}
-                title="Download Excel report"
-                aria-label="Download Excel report"
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              {/* ── Export (Excel / Word) with day · month · year · custom range ── */}
+              <div className="relative" ref={exportRef}>
+                <button
+                  className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-2.5 text-[#6b5740] transition-colors hover:border-[#d4af37] hover:bg-[#f0e8d8]"
+                  onClick={() => {
+                    setExportOpen((v) => !v);
+                  }}
+                  title="Download report"
+                  aria-label="Download report"
                 >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="M7 10l5 5 5-5" />
-                  <path d="M12 15V3" />
-                </svg>
-                <span className="hidden text-[10px] font-medium uppercase tracking-[0.08em] sm:inline">
-                  Excel
-                </span>
-              </button>
-              <button
-                className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-2.5 text-[#6b5740] transition-colors hover:border-[#d4af37] hover:bg-[#f0e8d8]"
-                onClick={downloadWord}
-                title="Download Word report"
-                aria-label="Download Word report"
-              >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="M7 10l5 5 5-5" />
-                  <path d="M12 15V3" />
-                </svg>
-                <span className="hidden text-[10px] font-medium uppercase tracking-[0.08em] sm:inline">
-                  Word
-                </span>
-              </button>
+                  <svg
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <path d="M7 10l5 5 5-5" />
+                    <path d="M12 15V3" />
+                  </svg>
+                  <span className="hidden text-[10px] font-medium uppercase tracking-[0.08em] sm:inline">
+                    Export
+                  </span>
+                </button>
+
+                {exportOpen && (
+                  <div className="fixed left-3 right-3 top-[104px] z-[200] overflow-hidden rounded-2xl border border-[#ede5d6] bg-white shadow-[0_16px_48px_rgba(26,18,8,0.18)] sm:left-auto sm:right-5 sm:top-[64px] sm:w-[340px]">
+                    <div className="border-b border-[#f0e8d8] px-[18px] pb-3 pt-4">
+                      <div className="font-['Cormorant_Garamond',serif] text-[19px] text-[#1a1208]">
+                        Download Report
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-[#8a7560]">
+                        {exportRange ? exportRange.label : 'Choose a valid period'}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-1 border-b border-[#f0e8d8] px-3.5 py-2.5">
+                      {(['day', 'month', 'year', 'custom'] as const).map((m) => (
+                        <button
+                          key={m}
+                          className={`flex-1 rounded-full border px-2 py-1.5 text-[10px] font-medium uppercase tracking-[0.06em] transition-all ${
+                            exportMode === m
+                              ? 'border-[#1a1208] bg-[#1a1208] text-[#d4af37]'
+                              : 'border-[#ede5d6] bg-[#faf8f4] text-[#6b5740]'
+                          }`}
+                          onClick={() => {
+                            setExportMode(m);
+                          }}
+                        >
+                          {m === 'custom' ? 'Custom' : m}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-col gap-3 px-[18px] py-4">
+                      {exportMode === 'day' && (
+                        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a7560]">
+                          Date
+                          <input
+                            type="date"
+                            max={todayStr}
+                            value={exportDay}
+                            onChange={(e) => {
+                              setExportDay(e.target.value);
+                            }}
+                            className="rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-3 py-2 text-[13px] normal-case tracking-normal text-[#2c1f0e] outline-none focus:border-[#d4af37]"
+                          />
+                        </label>
+                      )}
+
+                      {exportMode === 'month' && (
+                        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a7560]">
+                          Month
+                          <input
+                            type="month"
+                            max={todayStr.slice(0, 7)}
+                            value={exportMonth}
+                            onChange={(e) => {
+                              setExportMonth(e.target.value);
+                            }}
+                            className="rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-3 py-2 text-[13px] normal-case tracking-normal text-[#2c1f0e] outline-none focus:border-[#d4af37]"
+                          />
+                        </label>
+                      )}
+
+                      {exportMode === 'year' && (
+                        <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a7560]">
+                          Year
+                          <select
+                            value={exportYear}
+                            onChange={(e) => {
+                              setExportYear(e.target.value);
+                            }}
+                            className="rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-3 py-2 text-[13px] normal-case tracking-normal text-[#2c1f0e] outline-none focus:border-[#d4af37]"
+                          >
+                            {Array.from({ length: 6 }, (_, i) =>
+                              String(new Date().getFullYear() - i),
+                            ).map((y) => (
+                              <option key={y} value={y}>
+                                {y}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+
+                      {exportMode === 'custom' && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a7560]">
+                            From
+                            <input
+                              type="date"
+                              max={exportTo || todayStr}
+                              value={exportFrom}
+                              onChange={(e) => {
+                                setExportFrom(e.target.value);
+                              }}
+                              className="rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-2 py-2 text-[12px] normal-case tracking-normal text-[#2c1f0e] outline-none focus:border-[#d4af37]"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#8a7560]">
+                            To
+                            <input
+                              type="date"
+                              min={exportFrom}
+                              max={todayStr}
+                              value={exportTo}
+                              onChange={(e) => {
+                                setExportTo(e.target.value);
+                              }}
+                              className="rounded-lg border border-[#ede5d6] bg-[#faf8f4] px-2 py-2 text-[12px] normal-case tracking-normal text-[#2c1f0e] outline-none focus:border-[#d4af37]"
+                            />
+                          </label>
+                        </div>
+                      )}
+
+                      <div className="mt-1 grid grid-cols-2 gap-2">
+                        <button
+                          className="rounded-lg border-none bg-[#15803d] px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.1em] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={!exportRange || exporting !== null}
+                          onClick={() => {
+                            void runExport('excel');
+                          }}
+                        >
+                          {exporting === 'excel' ? 'Preparing…' : 'Excel'}
+                        </button>
+                        <button
+                          className="rounded-lg border-none bg-[#1d4ed8] px-3 py-2.5 text-[11px] font-medium uppercase tracking-[0.1em] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={!exportRange || exporting !== null}
+                          onClick={() => {
+                            void runExport('word');
+                          }}
+                        >
+                          {exporting === 'word' ? 'Preparing…' : 'Word'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#ede5d6] bg-[#faf8f4] text-[#6b5740] transition-colors hover:border-[#d4af37] hover:bg-[#f0e8d8]"
                 onClick={() => {
@@ -1280,16 +1672,38 @@ export default function DashboardPage() {
                                 </div>
                               </div>
                               {n.phone && (
-                                <a
-                                  className="ml-auto flex h-[26px] w-[26px] flex-shrink-0 items-center justify-center rounded-[7px] border border-[#ede5d6] bg-[#faf5e8] text-[#8a7560] no-underline"
-                                  href={`tel:${n.phone}`}
-                                  title={`Call ${n.phone}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                  }}
-                                >
-                                  <Icon name="phone" size={12} />
-                                </a>
+                                <div className="ml-auto flex flex-shrink-0 items-center gap-1.5">
+                                  <a
+                                    className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] border border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d] no-underline"
+                                    href={`https://wa.me/${toWhatsAppNumber(n.phone)}?text=${encodeURIComponent(buildWhatsAppMessage(notifTab, n))}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={`WhatsApp ${n.phone}`}
+                                    aria-label={`WhatsApp ${n.name}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <svg
+                                      width="14"
+                                      height="14"
+                                      viewBox="0 0 24 24"
+                                      fill="currentColor"
+                                    >
+                                      <path d="M20.52 3.48A11.86 11.86 0 0 0 12.05 0C5.5 0 .17 5.33.17 11.88c0 2.09.55 4.13 1.59 5.93L0 24l6.35-1.66a11.86 11.86 0 0 0 5.7 1.45h.01c6.55 0 11.88-5.33 11.88-11.88 0-3.17-1.23-6.15-3.42-8.43zM12.06 21.8h-.01a9.9 9.9 0 0 1-5.04-1.38l-.36-.21-3.77.99 1.01-3.67-.24-.38a9.87 9.87 0 0 1-1.52-5.27c0-5.46 4.44-9.9 9.91-9.9 2.64 0 5.12 1.03 6.99 2.9a9.84 9.84 0 0 1 2.9 7c0 5.46-4.45 9.92-9.87 9.92zm5.43-7.41c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48 0 1.46 1.07 2.88 1.22 3.08.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.2 1.87.12.57-.08 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35z" />
+                                    </svg>
+                                  </a>
+                                  <a
+                                    className="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] border border-[#ede5d6] bg-[#faf5e8] text-[#8a7560] no-underline"
+                                    href={`tel:${n.phone}`}
+                                    title={`Call ${n.phone}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                    }}
+                                  >
+                                    <Icon name="phone" size={12} />
+                                  </a>
+                                </div>
                               )}
                             </div>
                           ))
